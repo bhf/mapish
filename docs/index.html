@@ -25,6 +25,28 @@
         </div>
     </header>
 
+    <!-- Installation Section --> 
+    <section class="py-16 px-6 max-w-5xl mx-auto bg-slate-50 border-b border-slate-200"> 
+        <h2 class="text-3xl font-bold text-center mb-8">Installation</h2> 
+        <p class="text-center text-slate-600 mb-6">Mapish is published to GitHub Packages. Add the following to your <code>build.gradle.kts</code>:</p> 
+        <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg max-w-3xl mx-auto font-mono text-sm overflow-x-auto mb-4"> 
+<pre><code>repositories { 
+    mavenCentral() 
+    maven { 
+        url = uri("https://maven.pkg.github.com/bhf/mapish") 
+        credentials { 
+            username = System.getenv("GITHUB_ACTOR") 
+            password = System.getenv("GITHUB_TOKEN") 
+        } 
+    } 
+} 
+
+dependencies { 
+    implementation("com.bhf.mapish:off-heap-map:1.0-SNAPSHOT") 
+}</code></pre> 
+        </div> 
+        <p class="text-center text-sm text-slate-500">* Note: You will need a GitHub Personal Access Token (PAT) with the <code>read:packages</code> scope to consume the dependency.</p> 
+    </section>
     <!-- Features Section -->
     <section class="py-16 px-6 max-w-5xl mx-auto">
         <h2 class="text-3xl font-bold text-center mb-12">Why Off-Heap?</h2>

@@ -5,12 +5,38 @@
 A single-threaded, off-heap hash map implementation in Java that fully implements the `java.util.Map` contract. This project utilizes Java's Foreign Function & Memory (FFM) API to manage data structures directly in native memory, bypassing the Java Garbage Collector (GC) for the underlying table nodes.
 
 ## Table of Contents
+- [Installation](#installation)
 - [Memory Lifecycle & AutoCloseable](#memory-lifecycle--autocloseable)
 - [Implementation Details](#implementation-details)
   - [Architecture & Design](#architecture--design)
 - [Performance Optimizations](#performance-optimizations)
 - [Testing Strategy](#testing-strategy)
 - [Running the Project](#running-the-project)
+
+---
+
+## Installation
+
+`Off-Heap Mapish` is published to GitHub Packages. To consume it in your project, add the following to your `build.gradle.kts`:
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/bhf/mapish")
+        credentials {
+            username = System.getenv("GITHUB_ACTOR") // Your GitHub username
+            password = System.getenv("GITHUB_TOKEN") // A PAT with `read:packages` scope
+        }
+    }
+}
+
+dependencies {
+    implementation("com.bhf.mapish:off-heap-map:1.0-SNAPSHOT")
+}
+```
+
+[Back to top](#off-heap-map)
 
 ---
 
