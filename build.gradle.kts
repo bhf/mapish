@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("jacoco")
     alias(libs.plugins.jmh)
 }
 
@@ -29,4 +30,17 @@ jmh {
     iterations.set(1)
     fork.set(1)
     resultFormat.set("JSON")
+}
+
+tasks.test {
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        csv.required.set(true)
+        html.required.set(true)
+    }
 }
