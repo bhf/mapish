@@ -87,33 +87,41 @@ publishing {
 }
 
 tasks.register("bumpVersion") {
-    description = "Bumps the version in gradle.properties. Use -Ptype=[major|minor|patch]"
+    description = "Bumps the version in gradle.properties. Use -Ptype=[major|minor|patch] and -Psnapshot=[true|false]"
     group = "versioning"
     doLast {
         val type = project.findProperty("type") as? String ?: "patch"
+        val isSnapshot = (project.findProperty("snapshot") as? String)?.toBoolean() ?: true
+        
         val propsFile = file("gradle.properties")
         val content = propsFile.readText()
         val versionRegex = Regex("version=([0-9]+)\\.([0-9]+)\\.([0-9]+)(.*)")
         val match = versionRegex.find(content) ?: throw GradleException("Could not find version matching X.Y.Z in gradle.properties")
         
-        val (major, minor, patch, suffix) = match.destructured
+        val (major, minor, patch, oldSuffix) = match.destructured
+        
+         // If dropping snapshot, we usually don't increment the number if we're just finalizing the current snapshot
+        val finalizeOnly = !isSnapshot && oldSuffix.contains("-SNAPSHOT") && type == "patch" && project.findProperty("type") == null
         
         var newMajor = major.toInt()
         var newMinor = minor.toInt()
         var newPatch = patch.toInt()
-        
-        when (type.lowercase()) {
-            "major" -> { newMajor++; newMinor = 0; newPatch = 0 }
-            "minor" -> { newMinor++; newPatch = 0 }
-            "patch" -> newPatch++
-            else -> throw GradleException("Unknown release type: $type. Use major, minor, or patch.")
+        var newSuffix = if (isSnapshot) "-SNAPSHOT" else ""
+
+        if (!finalizeOnly) {
+            when (type.lowercase()) {
+                "major" -> { newMajor++; newMinor = 0; newPatch = 0 }
+                "minor" -> { newMinor++; newPatch = 0 }
+                "patch" -> newPatch++
+                else -> throw GradleException("Unknown release type: $type. Use major, minor, or patch.")
+            }
         }
         
-        val newVersion = "$newMajor.$newMinor.$newPatch$suffix"
-        val newContent = content.replace("version=${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}$suffix", "version=$newVersion")
+        val newVersion = "$newMajor.$newMinor.$newPatch$newSuffix"
+        val newContent = content.replace("version=${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}$oldSuffix", "version=$newVersion")
         propsFile.writeText(newContent)
         
-        println("Bumped version: ${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}$suffix -> $newVersion")
+        println("Bumped version: ${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}$oldSuffix -> $newVersion")
     }
 }
 
