@@ -152,7 +152,7 @@ public class OffHeapMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Au
         return insert(memorySegment, capacity, key, value, false);
     }
     
-    private V insert(MemorySegment segment, int cap, K key, V value, boolean isResize) {
+    protected V insert(MemorySegment segment, int cap, K key, V value, boolean isResize) {
         int h = hash(key);
         int index = h % cap; 
         for (int i = 0; i < cap; i++) {

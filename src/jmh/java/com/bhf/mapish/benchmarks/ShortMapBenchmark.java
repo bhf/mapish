@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Thread)
 public class ShortMapBenchmark {
 
-    @Param({"100", "10000"})
+    @Param({"100", "1000", "10000", "100000"})
     private int size;
 
     private Map<Short, Short> hashMap;

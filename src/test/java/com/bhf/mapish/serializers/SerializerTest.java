@@ -126,6 +126,24 @@ public class SerializerTest {
             assertTrue(serializer.equals("Hello", segment, 0));
             assertFalse(serializer.equals("World", segment, 0));
             assertFalse(serializer.equals(null, segment, 0));
+            
+            // Length mismatch in equals
+            assertFalse(serializer.equals("Hell", segment, 0));
+            
+            // Empty string
+            serializer.serialize("", segment, 0);
+            assertEquals("", serializer.deserialize(segment, 0));
+            assertTrue(serializer.equals("", segment, 0));
+            
+            // Exception: Exceeds max bytes
+            assertThrows(IllegalArgumentException.class, () -> serializer.serialize("This string is way too long for 16 bytes", segment, 0));
+            
+            // Exception: Corrupted length in deserialize
+            segment.set(java.lang.foreign.ValueLayout.JAVA_INT, 0, -1);
+            assertThrows(IllegalStateException.class, () -> serializer.deserialize(segment, 0));
+            
+            segment.set(java.lang.foreign.ValueLayout.JAVA_INT, 0, 17);
+            assertThrows(IllegalStateException.class, () -> serializer.deserialize(segment, 0));
         }
     }
 }

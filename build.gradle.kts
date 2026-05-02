@@ -37,6 +37,8 @@ jmh {
     iterations.set(1)
     fork.set(1)
     resultFormat.set("JSON")
+    resultsFile.set(project.file("build/reports/jmh/results.json"))
+    profilers.add("gc")
 }
 
 tasks.test {
