@@ -1,0 +1,16 @@
+[versions]
+guava = "33.1.0-jre"
+junit = "4.13.2"
+junitBom = "5.10.0"
+jmh = "0.7.2"
+
+[libraries]
+guava-testlib = { module = "com.google.guava:guava-testlib", version.ref = "guava" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junitBom" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-vintage-engine = { module = "org.junit.vintage:junit-vintage-engine" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+jmh = { id = "me.champeau.jmh", version.ref = "jmh" }
