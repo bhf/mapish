@@ -29,4 +29,26 @@ public class OffHeapMapLifecycleTest {
             map.put("another_key", "fail_value");
         }, "Should throw an exception since the MemorySegment is inaccessible.");
     }
+
+    @Test
+    public void testMapResizeAndCapacityExpansion() {
+        // Default capacity is 16, load factor is 0.5 (threshold = 8)
+        // Inserting 50 items will force multiple off-heap segment reallocations
+        OffHeapMap<Integer, Integer> map = new OffHeapMap<>(new IntegerSerializer(), new IntegerSerializer());
+        
+        for (int i = 0; i < 50; i++) {
+            map.put(i, i * 10);
+        }
+        
+        assertEquals(50, map.size(), "Size should properly reflect all insertions across resizes");
+        
+        for (int i = 0; i < 50; i++) {
+            assertEquals(i * 10, map.get(i), "Should retrieve correctly after resizing memory segments");
+        }
+        
+        // Ensure removal still works after resizing
+        map.remove(25);
+        assertNull(map.get(25), "Removed element should be null");
+        assertEquals(49, map.size());
+    }
 }
