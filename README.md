@@ -2,7 +2,7 @@
 
 [![Build and Test](https://github.com/bhf/mapish/actions/workflows/build.yml/badge.svg)](https://github.com/bhf/mapish/actions/workflows/build.yml) ![Coverage](https://img.shields.io/badge/Coverage-86%25-brightgreen)
 
-A high-performance, single-threaded, off-heap hash map implementation in Java that fully implements the `java.util.Map` contract. This project utilizes Java's Foreign Function & Memory (FFM) API to manage data structures directly in native memory, bypassing the Java Garbage Collector (GC) for the underlying table nodes.
+A single-threaded, off-heap hash map implementation in Java that fully implements the `java.util.Map` contract. This project utilizes Java's Foreign Function & Memory (FFM) API to manage data structures directly in native memory, bypassing the Java Garbage Collector (GC) for the underlying table nodes.
 
 ## Table of Contents
 - [Memory Lifecycle & AutoCloseable](#memory-lifecycle--autocloseable)
