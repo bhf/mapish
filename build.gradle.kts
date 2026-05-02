@@ -131,17 +131,23 @@ tasks.register("release") {
         val tagName = "v$newVersion"
         
         println("==> Staging gradle.properties...")
-        exec { commandLine("git", "add", "gradle.properties") }
+        ProcessBuilder("git", "add", "gradle.properties").redirectErrorStream(true).start().waitFor()
         
         println("==> Committing version bump to $newVersion...")
-        exec { commandLine("git", "commit", "-m", "Release $tagName") }
+        ProcessBuilder("git", "commit", "-m", "Release $tagName").redirectErrorStream(true).start().waitFor()
         
         println("==> Pushing commit to GitHub...")
-        exec { commandLine("git", "push", "origin", "HEAD") }
+        ProcessBuilder("git", "push", "origin", "HEAD").redirectErrorStream(true).start().waitFor()
         
         println("==> Creating formal GitHub Release $tagName...")
-        exec { 
-            commandLine("gh", "release", "create", tagName, "--generate-notes", "--title", "Release $tagName") 
+        val ghProcess = ProcessBuilder("gh", "release", "create", tagName, "--generate-notes", "--title", "Release $tagName")
+            .redirectErrorStream(true)
+            .start()
+        val ghOutput = ghProcess.inputStream.bufferedReader().readText()
+        ghProcess.waitFor()
+        if (ghProcess.exitValue() != 0) {
+            println(ghOutput)
+            throw GradleException("Failed to create GitHub release")
         }
         
         println("==> Successfully released $tagName! The GitHub action should now publish the packages.")
