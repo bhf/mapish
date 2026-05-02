@@ -12,6 +12,7 @@ A single-threaded, off-heap hash map implementation in Java that fully implement
 - [Performance Optimizations](#performance-optimizations)
 - [Testing Strategy](#testing-strategy)
 - [Running the Project](#running-the-project)
+- [Releasing and Versioning](#releasing-and-versioning)
 
 ---
 
@@ -65,6 +66,33 @@ Confined maps implement `AutoCloseable` and immediately drop the underlying memo
 
 ---
 
+## Releasing and Versioning
+
+This project uses a semantic version properties file to manage artifact releases via a custom Gradle task.
+
+**Bumping the Version:**
+To increment the version in `gradle.properties`, utilize the custom `bumpVersion` task:
+
+```bash
+# Bump patch version (e.g. 1.0.0-SNAPSHOT -> 1.0.1-SNAPSHOT)
+./gradlew bumpVersion -Ptype=patch
+
+# Bump minor version (e.g. 1.0.1-SNAPSHOT -> 1.1.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=minor
+
+# Bump major version (e.g. 1.1.0-SNAPSHOT -> 2.0.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=major
+```
+
+**Publishing the Release:**
+The CI/CD pipeline includes a dedicated `publish.yml` GitHub Actions workflow. Ensure that you have committed your version bump, then you can trigger the release directly on GitHub:
+
+1. **Option 1 (Automated):** Navigate to the project's GitHub page and hit **Create a new release**. Publishing a release will automatically trigger the workflow.
+2. **Option 2 (Manual):** Go to the GitHub repository **Actions** tab, select the **Publish release to GitHub Packages** workflow on the left side, and click **Run workflow**.
+
+[Back to top](#off-heap-map)
+---
+
 ## Implementation Details
 
 Instead of relying on arrays of Java Object references (which live on the heap and are tracked by the GC), `OffHeapMap` allocates a single, contiguous off-heap `MemorySegment` to store all keys, values, and structural metadata.
@@ -80,6 +108,33 @@ Instead of relying on arrays of Java Object references (which live on the heap a
 
 ---
 
+## Releasing and Versioning
+
+This project uses a semantic version properties file to manage artifact releases via a custom Gradle task.
+
+**Bumping the Version:**
+To increment the version in `gradle.properties`, utilize the custom `bumpVersion` task:
+
+```bash
+# Bump patch version (e.g. 1.0.0-SNAPSHOT -> 1.0.1-SNAPSHOT)
+./gradlew bumpVersion -Ptype=patch
+
+# Bump minor version (e.g. 1.0.1-SNAPSHOT -> 1.1.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=minor
+
+# Bump major version (e.g. 1.1.0-SNAPSHOT -> 2.0.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=major
+```
+
+**Publishing the Release:**
+The CI/CD pipeline includes a dedicated `publish.yml` GitHub Actions workflow. Ensure that you have committed your version bump, then you can trigger the release directly on GitHub:
+
+1. **Option 1 (Automated):** Navigate to the project's GitHub page and hit **Create a new release**. Publishing a release will automatically trigger the workflow.
+2. **Option 2 (Manual):** Go to the GitHub repository **Actions** tab, select the **Publish release to GitHub Packages** workflow on the left side, and click **Run workflow**.
+
+[Back to top](#off-heap-map)
+---
+
 ## Performance Optimizations
 
 To mitigate the heavy costs of serializing and deserializing data back and forth between the JVM heap and native memory, we implemented several key performance tricks:
@@ -92,6 +147,33 @@ To mitigate the heavy costs of serializing and deserializing data back and forth
 
 ---
 
+## Releasing and Versioning
+
+This project uses a semantic version properties file to manage artifact releases via a custom Gradle task.
+
+**Bumping the Version:**
+To increment the version in `gradle.properties`, utilize the custom `bumpVersion` task:
+
+```bash
+# Bump patch version (e.g. 1.0.0-SNAPSHOT -> 1.0.1-SNAPSHOT)
+./gradlew bumpVersion -Ptype=patch
+
+# Bump minor version (e.g. 1.0.1-SNAPSHOT -> 1.1.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=minor
+
+# Bump major version (e.g. 1.1.0-SNAPSHOT -> 2.0.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=major
+```
+
+**Publishing the Release:**
+The CI/CD pipeline includes a dedicated `publish.yml` GitHub Actions workflow. Ensure that you have committed your version bump, then you can trigger the release directly on GitHub:
+
+1. **Option 1 (Automated):** Navigate to the project's GitHub page and hit **Create a new release**. Publishing a release will automatically trigger the workflow.
+2. **Option 2 (Manual):** Go to the GitHub repository **Actions** tab, select the **Publish release to GitHub Packages** workflow on the left side, and click **Run workflow**.
+
+[Back to top](#off-heap-map)
+---
+
 ## Testing Strategy
 
 Validating custom data structures requires rigorous boundaries testing. 
@@ -102,6 +184,33 @@ Validating custom data structures requires rigorous boundaries testing.
 
 [Back to top](#off-heap-mapish)
 
+---
+
+## Releasing and Versioning
+
+This project uses a semantic version properties file to manage artifact releases via a custom Gradle task.
+
+**Bumping the Version:**
+To increment the version in `gradle.properties`, utilize the custom `bumpVersion` task:
+
+```bash
+# Bump patch version (e.g. 1.0.0-SNAPSHOT -> 1.0.1-SNAPSHOT)
+./gradlew bumpVersion -Ptype=patch
+
+# Bump minor version (e.g. 1.0.1-SNAPSHOT -> 1.1.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=minor
+
+# Bump major version (e.g. 1.1.0-SNAPSHOT -> 2.0.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=major
+```
+
+**Publishing the Release:**
+The CI/CD pipeline includes a dedicated `publish.yml` GitHub Actions workflow. Ensure that you have committed your version bump, then you can trigger the release directly on GitHub:
+
+1. **Option 1 (Automated):** Navigate to the project's GitHub page and hit **Create a new release**. Publishing a release will automatically trigger the workflow.
+2. **Option 2 (Manual):** Go to the GitHub repository **Actions** tab, select the **Publish release to GitHub Packages** workflow on the left side, and click **Run workflow**.
+
+[Back to top](#off-heap-map)
 ---
 
 ## Running the Project
@@ -118,3 +227,38 @@ Validating custom data structures requires rigorous boundaries testing.
 *Note: The entire JMH test suite is configured to output metrics directly in JSON format (found in `build/results/jmh/results.json`) making it easy for machine analysis and visualization pipelines.*
 
 [Back to top](#off-heap-mapish)
+---
+
+## Releasing and Versioning
+
+This project uses a semantic version properties file to manage artifact releases via a custom Gradle task.
+
+**Bumping the Version:**
+To increment the version in `gradle.properties`, utilize the custom `bumpVersion` task:
+
+```bash
+# Bump patch version (e.g. 1.0.0-SNAPSHOT -> 1.0.1-SNAPSHOT)
+./gradlew bumpVersion -Ptype=patch
+
+# Bump minor version (e.g. 1.0.1-SNAPSHOT -> 1.1.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=minor
+
+# Bump major version (e.g. 1.1.0-SNAPSHOT -> 2.0.0-SNAPSHOT)
+./gradlew bumpVersion -Ptype=major
+```
+
+**Automated Publishing (Recommended):**
+You can trigger the entire release process from the command line. This combined task bumps the version, commits the modification, pushes your branch to GitHub, and automatically utilizes the GitHub CLI (`gh`) to spawn a formal release (which triggers the CI pipeline to publish the Packages):
+
+```bash
+# Bumps the patch, commits, pushes, and creates release vX.Y.Z over the API
+./gradlew release -Ptype=patch
+```
+*(Note: Automated releasing requires the [GitHub CLI](https://cli.github.com/) to be installed and authenticated locally).*
+
+**Manual Publishing:**
+If you prefer not to use the automated `gh` CLI task, ensure that you have committed your version bump manually (`./gradlew bumpVersion -Ptype=minor`). Then you can trigger the release directly on GitHub:
+1. **Option 1:** Navigate to the project's GitHub page and hit **Create a new release**.
+2. **Option 2:** Go to the GitHub repository **Actions** tab, select the **Publish release to GitHub Packages** workflow, and click **Run workflow**.
+
+[Back to top](#off-heap-map)

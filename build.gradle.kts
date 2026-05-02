@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.bhf.mapish"
-version = "1.0-SNAPSHOT"
+// Version is now managed in gradle.properties
 
 java {
     toolchain {
@@ -83,5 +83,67 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN")
             }
         }
+    }
+}
+
+tasks.register("bumpVersion") {
+    description = "Bumps the version in gradle.properties. Use -Ptype=[major|minor|patch]"
+    group = "versioning"
+    doLast {
+        val type = project.findProperty("type") as? String ?: "patch"
+        val propsFile = file("gradle.properties")
+        val content = propsFile.readText()
+        val versionRegex = Regex("version=([0-9]+)\\.([0-9]+)\\.([0-9]+)(.*)")
+        val match = versionRegex.find(content) ?: throw GradleException("Could not find version matching X.Y.Z in gradle.properties")
+        
+        val (major, minor, patch, suffix) = match.destructured
+        
+        var newMajor = major.toInt()
+        var newMinor = minor.toInt()
+        var newPatch = patch.toInt()
+        
+        when (type.lowercase()) {
+            "major" -> { newMajor++; newMinor = 0; newPatch = 0 }
+            "minor" -> { newMinor++; newPatch = 0 }
+            "patch" -> newPatch++
+            else -> throw GradleException("Unknown release type: $type. Use major, minor, or patch.")
+        }
+        
+        val newVersion = "$newMajor.$newMinor.$newPatch$suffix"
+        val newContent = content.replace("version=${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}$suffix", "version=$newVersion")
+        propsFile.writeText(newContent)
+        
+        println("Bumped version: ${match.groupValues[1]}.${match.groupValues[2]}.${match.groupValues[3]}$suffix -> $newVersion")
+    }
+}
+
+tasks.register("release") {
+    description = "Bumps version, commits, pushes, and creates a formal GitHub release to trigger CI publishing"
+    group = "versioning"
+    dependsOn("bumpVersion")
+    
+    doLast {
+        val propsFile = file("gradle.properties")
+        val content = propsFile.readText()
+        val versionRegex = Regex("version=(.*)")
+        val match = versionRegex.find(content) ?: throw GradleException("Could not find version in gradle.properties")
+        val newVersion = match.groupValues[1].trim()
+        val tagName = "v$newVersion"
+        
+        println("==> Staging gradle.properties...")
+        exec { commandLine("git", "add", "gradle.properties") }
+        
+        println("==> Committing version bump to $newVersion...")
+        exec { commandLine("git", "commit", "-m", "Release $tagName") }
+        
+        println("==> Pushing commit to GitHub...")
+        exec { commandLine("git", "push", "origin", "HEAD") }
+        
+        println("==> Creating formal GitHub Release $tagName...")
+        exec { 
+            commandLine("gh", "release", "create", tagName, "--generate-notes", "--title", "Release $tagName") 
+        }
+        
+        println("==> Successfully released $tagName! The GitHub action should now publish the packages.")
     }
 }
