@@ -1,4 +1,4 @@
-# Off-Heap Mapish
+# Off-Heap Map
 
 [![Build and Test](https://github.com/bhf/mapish/actions/workflows/build.yml/badge.svg)](https://github.com/bhf/mapish/actions/workflows/build.yml) ![Coverage](https://img.shields.io/badge/Coverage-86%25-brightgreen)
 
