@@ -1,11 +1,12 @@
 package com.bhf.mapish.benchmarks;
 
 import com.bhf.mapish.OffHeapMap;
+import com.bhf.mapish.benchmarks.oak.OakAdapters;
 import com.bhf.mapish.serializers.BooleanSerializer;
+import com.yahoo.oak.OakMap;
+import com.yahoo.oak.OakMapBuilder;
 import org.openjdk.jmh.annotations.*;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @BenchmarkMode(Mode.Throughput)
@@ -16,7 +17,7 @@ public class BooleanMapBenchmark {
     @Param({"2"})
     private int size;
 
-    private Map<Boolean, Boolean> hashMap;
+    private OakMap<Boolean, Boolean> oakMap;
     private OffHeapMap<Boolean, Boolean> offHeapMap;
 
     private Boolean[] keys;
@@ -31,25 +32,32 @@ public class BooleanMapBenchmark {
             values[i] = (i % 2 == 0);
         }
 
-        hashMap = new HashMap<>(size);
+        oakMap = new OakMapBuilder<>(OakAdapters.BOOLEAN_COMPARATOR, OakAdapters.BOOLEAN_SERIALIZER, OakAdapters.BOOLEAN_SERIALIZER, false)
+                .setMemoryCapacity(OakAdapters.oakCapacity(size))
+                .buildOrderedMap();
         offHeapMap = new OffHeapMap<>(new BooleanSerializer(), new BooleanSerializer(), size);
 
         for (int i = 0; i < size; i++) {
-            hashMap.put(keys[i], values[i]);
+            oakMap.put(keys[i], values[i]);
             offHeapMap.put(keys[i], values[i]);
         }
     }
 
     @TearDown(Level.Iteration)
     public void tearDown() {
-        // Arena.ofAuto() handles it
+        if (oakMap != null) {
+            oakMap.close();
+        }
     }
 
     @Benchmark
-    public void javaHashMap_put() {
-        Map<Boolean, Boolean> map = new HashMap<>(size);
-        for (int i = 0; i < size; i++) {
-            map.put(keys[i], values[i]);
+    public void oakMap_put() {
+        try (OakMap<Boolean, Boolean> oak = new OakMapBuilder<>(OakAdapters.BOOLEAN_COMPARATOR, OakAdapters.BOOLEAN_SERIALIZER, OakAdapters.BOOLEAN_SERIALIZER, false)
+                .setMemoryCapacity(OakAdapters.oakCapacity(size))
+                .buildOrderedMap()) {
+            for (int i = 0; i < size; i++) {
+                oak.put(keys[i], values[i]);
+            }
         }
     }
 
@@ -62,10 +70,10 @@ public class BooleanMapBenchmark {
     }
 
     @Benchmark
-    public Boolean javaHashMap_get() {
+    public Boolean oakMap_get() {
         Boolean result = null;
         for (int i = 0; i < size; i++) {
-            result = hashMap.get(keys[i]);
+            result = oakMap.get(keys[i]);
         }
         return result;
     }
@@ -80,10 +88,10 @@ public class BooleanMapBenchmark {
     }
 
     @Benchmark
-    public boolean javaHashMap_containsKey() {
+    public boolean oakMap_containsKey() {
         boolean result = false;
         for (int i = 0; i < size; i++) {
-            result = hashMap.containsKey(keys[i]);
+            result = oakMap.containsKey(keys[i]);
         }
         return result;
     }

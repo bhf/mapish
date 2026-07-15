@@ -1,11 +1,12 @@
 package com.bhf.mapish.benchmarks;
 
 import com.bhf.mapish.OffHeapMap;
+import com.bhf.mapish.benchmarks.oak.OakAdapters;
 import com.bhf.mapish.serializers.StringSerializer;
+import com.yahoo.oak.OakMap;
+import com.yahoo.oak.OakMapBuilder;
 import org.openjdk.jmh.annotations.*;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @BenchmarkMode(Mode.Throughput)
@@ -16,7 +17,7 @@ public class StringMapBenchmark {
     @Param({"100", "1000", "10000", "100000"})
     private int size;
 
-    private Map<String, String> hashMap;
+    private OakMap<String, String> oakMap;
     private OffHeapMap<String, String> offHeapMap;
 
     private String[] keys;
@@ -31,25 +32,32 @@ public class StringMapBenchmark {
             values[i] = "Value_" + i;
         }
 
-        hashMap = new HashMap<>(size);
+        oakMap = new OakMapBuilder<>(OakAdapters.STRING_COMPARATOR, OakAdapters.STRING_SERIALIZER, OakAdapters.STRING_SERIALIZER, "")
+                .setMemoryCapacity(OakAdapters.oakCapacity(size))
+                .buildOrderedMap();
         offHeapMap = new OffHeapMap<>(new StringSerializer(64), new StringSerializer(64), size);
 
         for (int i = 0; i < size; i++) {
-            hashMap.put(keys[i], values[i]);
+            oakMap.put(keys[i], values[i]);
             offHeapMap.put(keys[i], values[i]);
         }
     }
 
     @TearDown(Level.Iteration)
     public void tearDown() {
-        // Arena.ofAuto() handles it
+        if (oakMap != null) {
+            oakMap.close();
+        }
     }
 
     @Benchmark
-    public void javaHashMap_put() {
-        Map<String, String> map = new HashMap<>(size);
-        for (int i = 0; i < size; i++) {
-            map.put(keys[i], values[i]);
+    public void oakMap_put() {
+        try (OakMap<String, String> oak = new OakMapBuilder<>(OakAdapters.STRING_COMPARATOR, OakAdapters.STRING_SERIALIZER, OakAdapters.STRING_SERIALIZER, "")
+                .setMemoryCapacity(OakAdapters.oakCapacity(size))
+                .buildOrderedMap()) {
+            for (int i = 0; i < size; i++) {
+                oak.put(keys[i], values[i]);
+            }
         }
     }
 
@@ -62,10 +70,10 @@ public class StringMapBenchmark {
     }
 
     @Benchmark
-    public String javaHashMap_get() {
+    public String oakMap_get() {
         String result = null;
         for (int i = 0; i < size; i++) {
-            result = hashMap.get(keys[i]);
+            result = oakMap.get(keys[i]);
         }
         return result;
     }
@@ -80,10 +88,10 @@ public class StringMapBenchmark {
     }
 
     @Benchmark
-    public boolean javaHashMap_containsKey() {
+    public boolean oakMap_containsKey() {
         boolean result = false;
         for (int i = 0; i < size; i++) {
-            result = hashMap.containsKey(keys[i]);
+            result = oakMap.containsKey(keys[i]);
         }
         return result;
     }

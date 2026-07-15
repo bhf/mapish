@@ -71,7 +71,7 @@ dependencies {
         <div class="max-w-5xl mx-auto">
             <div class="text-center mb-12">
                 <h2 class="text-3xl font-bold mb-4">JMH Benchmarks (Throughput & GC)</h2>
-                <p class="text-slate-600">Comparing standard <code class="text-sm bg-slate-100 px-1 rounded">java.util.HashMap</code> vs <code class="text-sm bg-slate-100 px-1 rounded">OffHeapMap</code> for throughput (operations/ms) and GC allocations (Bytes/op).</p>
+                <p class="text-slate-600">Comparing Yahoo's <code class="text-sm bg-slate-100 px-1 rounded">OakMap</code> vs <code class="text-sm bg-slate-100 px-1 rounded">OffHeapMap</code> for throughput (operations/ms) and GC allocations (Bytes/op).</p>
             </div>
 
             <div class="mb-10 hidden border-b border-gray-200" id="tabsContainer">
@@ -110,7 +110,7 @@ dependencies {
                     const methodName = parts.pop();
                     const className = parts.pop();
                     
-                    const mapType = methodName.startsWith('javaHashMap') ? 'java.util.HashMap' : 'OffHeapMap';
+                    const mapType = methodName.startsWith('oakMap') ? 'OakMap (Yahoo)' : 'OffHeapMap';
                     const operation = methodName.split('_')[1];
                     const size = entry.params.size;
                     const throughput = entry.primaryMetric.score;
@@ -185,10 +185,10 @@ dependencies {
                         const offHeapGc = [];
                         
                         Object.keys(sizes).sort((a,b) => parseInt(a) - parseInt(b)).forEach(size => {
-                            javaThrpt.push(sizes[size]['java.util.HashMap']?.throughput || 0);
+                            javaThrpt.push(sizes[size]['OakMap (Yahoo)']?.throughput || 0);
                             offHeapThrpt.push(sizes[size]['OffHeapMap']?.throughput || 0);
                             
-                            javaGc.push(sizes[size]['java.util.HashMap']?.gcAllocNorm || 0);
+                            javaGc.push(sizes[size]['OakMap (Yahoo)']?.gcAllocNorm || 0);
                             offHeapGc.push(sizes[size]['OffHeapMap']?.gcAllocNorm || 0);
                         });
 
@@ -198,7 +198,7 @@ dependencies {
                                 labels: labels,
                                 datasets: [
                                     {
-                                        label: 'java.util.HashMap',
+                                        label: 'OakMap (Yahoo)',
                                         data: javaThrpt,
                                         backgroundColor: 'rgba(148, 163, 184, 0.7)',
                                         borderColor: 'rgba(148, 163, 184, 1)',
@@ -242,7 +242,7 @@ dependencies {
                                 labels: labels,
                                 datasets: [
                                     {
-                                        label: 'java.util.HashMap',
+                                        label: 'OakMap (Yahoo)',
                                         data: javaGc,
                                         backgroundColor: 'rgba(220, 38, 38, 0.7)', // Red to imply costs
                                         borderColor: 'rgba(220, 38, 38, 1)',

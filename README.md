@@ -100,7 +100,7 @@ To mitigate the heavy costs of serializing and deserializing data back and forth
 Validating custom data structures requires rigorous boundaries testing. 
 
 * **Contract Verification:** We utilize **Google's `guava-testlib`** via `MapTestSuiteBuilder`. This dynamically generates hundreds of permutations and structural edge-case tests to strictly verify that `OffHeapMap` conforms 100% perfectly to the standard `java.util.Map` interface contracts (handling null boundaries, `entrySet()` iterator removals, deep `hashCode()` constraints, etc.).
-* **Benchmarking:** Throughput is measured using **Java Microbenchmark Harness (JMH)**. The benchmark suite (`src/jmh/java/com/bhf/mapish/benchmarks/`) includes separate, encapsulated benchmarks for each primitive serializer (String, Integer, Double, etc.). It compares operations (`put`, `get`, `containsKey`) against `java.util.HashMap` over 100 and 10,000 element scale runs to observe scaling thresholds, memory boundaries, and throughput operations per millisecond.
+* **Benchmarking:** Throughput is measured using **Java Microbenchmark Harness (JMH)**. The benchmark suite (`src/jmh/java/com/bhf/mapish/benchmarks/`) includes separate, encapsulated benchmarks for each primitive serializer (String, Integer, Double, etc.). It compares operations (`put`, `get`, `containsKey`) against Yahoo's `OakMap` (another off-heap map implementation) over 100 and 10,000 element scale runs to observe scaling thresholds, memory boundaries, and throughput operations per millisecond.
 * **Component Testing:** Comprehensive JUnit tests ensure stability across the isolated serializers and `AutoCloseable` memory lifecycles.
 
 [Back to top](#off-heap-map)
