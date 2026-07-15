@@ -1,11 +1,12 @@
 package com.bhf.mapish.benchmarks;
 
 import com.bhf.mapish.OffHeapMap;
+import com.bhf.mapish.benchmarks.oak.OakAdapters;
 import com.bhf.mapish.serializers.LongSerializer;
+import com.yahoo.oak.OakMap;
+import com.yahoo.oak.OakMapBuilder;
 import org.openjdk.jmh.annotations.*;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @BenchmarkMode(Mode.Throughput)
@@ -16,7 +17,7 @@ public class LongMapBenchmark {
     @Param({"100", "1000", "10000", "100000"})
     private int size;
 
-    private Map<Long, Long> hashMap;
+    private OakMap<Long, Long> oakMap;
     private OffHeapMap<Long, Long> offHeapMap;
 
     private Long[] keys;
@@ -31,25 +32,32 @@ public class LongMapBenchmark {
             values[i] = (long) i;
         }
 
-        hashMap = new HashMap<>(size);
+        oakMap = new OakMapBuilder<>(OakAdapters.LONG_COMPARATOR, OakAdapters.LONG_SERIALIZER, OakAdapters.LONG_SERIALIZER, Long.MIN_VALUE)
+                .setMemoryCapacity(OakAdapters.oakCapacity(size))
+                .buildOrderedMap();
         offHeapMap = new OffHeapMap<>(new LongSerializer(), new LongSerializer(), size);
 
         for (int i = 0; i < size; i++) {
-            hashMap.put(keys[i], values[i]);
+            oakMap.put(keys[i], values[i]);
             offHeapMap.put(keys[i], values[i]);
         }
     }
 
     @TearDown(Level.Iteration)
     public void tearDown() {
-        // Arena.ofAuto() handles it
+        if (oakMap != null) {
+            oakMap.close();
+        }
     }
 
     @Benchmark
-    public void javaHashMap_put() {
-        Map<Long, Long> map = new HashMap<>(size);
-        for (int i = 0; i < size; i++) {
-            map.put(keys[i], values[i]);
+    public void oakMap_put() {
+        try (OakMap<Long, Long> oak = new OakMapBuilder<>(OakAdapters.LONG_COMPARATOR, OakAdapters.LONG_SERIALIZER, OakAdapters.LONG_SERIALIZER, Long.MIN_VALUE)
+                .setMemoryCapacity(OakAdapters.oakCapacity(size))
+                .buildOrderedMap()) {
+            for (int i = 0; i < size; i++) {
+                oak.put(keys[i], values[i]);
+            }
         }
     }
 
@@ -62,10 +70,10 @@ public class LongMapBenchmark {
     }
 
     @Benchmark
-    public Long javaHashMap_get() {
+    public Long oakMap_get() {
         Long result = null;
         for (int i = 0; i < size; i++) {
-            result = hashMap.get(keys[i]);
+            result = oakMap.get(keys[i]);
         }
         return result;
     }
@@ -80,10 +88,10 @@ public class LongMapBenchmark {
     }
 
     @Benchmark
-    public boolean javaHashMap_containsKey() {
+    public boolean oakMap_containsKey() {
         boolean result = false;
         for (int i = 0; i < size; i++) {
-            result = hashMap.containsKey(keys[i]);
+            result = oakMap.containsKey(keys[i]);
         }
         return result;
     }

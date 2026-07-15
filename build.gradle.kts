@@ -25,6 +25,7 @@ dependencies {
     testImplementation(libs.junit.vintage.engine)
     testImplementation(libs.junit)
     testRuntimeOnly(libs.junit.platform.launcher)
+    jmhImplementation(libs.oak)
 }
 
 tasks.test {
@@ -39,6 +40,10 @@ jmh {
     resultFormat.set("JSON")
     resultsFile.set(project.file("build/reports/jmh/results.json"))
     profilers.add("gc")
+    jvmArgs.addAll(listOf(
+        "--add-opens", "java.base/java.nio=ALL-UNNAMED",
+        "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED"
+    ))
 }
 
 tasks.test {
