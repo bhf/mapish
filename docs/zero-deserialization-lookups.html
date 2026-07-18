@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero-Deserialization Lookups | Off-Heap Mapish</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <style>pre[class*="language-"],code[class*="language-"]{background:transparent;text-shadow:none}</style>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="text-lg font-bold tracking-tight hover:text-blue-300 transition">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
+                <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
+                <a href="why-off-heap.html" class="hover:text-blue-300 transition">Why Off-Heap?</a>
+                <a href="open-addressing-linear-probing.html" class="hover:text-blue-300 transition">Open Addressing</a>
+                <a href="zero-deserialization-lookups.html" class="text-blue-300">Zero-Deserialization</a>
+            </div>
+            <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hidden md:inline-block hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+        </div>
+    </nav>
+
+<article class="max-w-3xl mx-auto px-6 py-16 text-slate-800 leading-relaxed">
+
+    <!-- Title & Meta -->
+    <header class="mb-14">
+        <p class="text-sm font-semibold uppercase tracking-widest text-indigo-600 mb-3">Technical Deep Dive</p>
+        <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 mb-4">
+            Zero-Deserialization Lookups: The <code class="text-indigo-600">MemorySegment.mismatch()</code>&nbsp;Trick
+        </h1>
+        <p class="text-lg text-slate-500">
+            How Mapish eliminates heap allocation during key lookups by comparing raw bytes in native memory&mdash;accelerated by SIMD instructions you never had to write.
+        </p>
+        <div class="mt-6 flex items-center gap-3 text-sm text-slate-400">
+            <time datetime="2026-07-18">July 18, 2026</time>
+            <span>&middot;</span>
+            <span>14 min read</span>
+        </div>
+    </header>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 1. The Serialization Tax                       -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">1. The Serialization Tax</h2>
+
+        <p class="mb-4">
+            Off-heap maps store data as raw bytes in native memory. There are no Java objects sitting on the
+            heap&mdash;just a flat, contiguous <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">MemorySegment</code>
+            full of serialized entries. That&rsquo;s the entire point: the GC never sees them.
+        </p>
+
+        <p class="mb-4">
+            But there&rsquo;s a catch. When you call <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">map.get(key)</code>,
+            the map needs to <em>find</em> the matching entry. In an open-addressing scheme with linear probing,
+            that means walking a probe chain and comparing the lookup key against each candidate. The naive
+            approach is obvious: deserialize the stored key back into a Java object, then call
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">.equals()</code>.
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// The naive approach — deserialize every candidate key
+for (int i = 0; i &lt; probeChainLength; i++) {
+    K storedKey = keySerializer.deserialize(segment, offset + keyOffset);
+    if (lookupKey.equals(storedKey)) {   // Java object comparison
+        return valueSerializer.deserialize(segment, offset + valueOffset);
+    }
+    offset = nextProbe(offset);
+}</code></pre></div>
+
+        <p class="mt-6 mb-4">
+            Look at what happens on every step of that probe chain:
+        </p>
+
+        <ul class="list-disc list-inside mb-4 space-y-2 text-slate-700">
+            <li>A new Java object is allocated on the heap for the deserialized key</li>
+            <li>For <code class="bg-slate-100 px-1 rounded text-sm">String</code> keys: <code class="bg-slate-100 px-1 rounded text-sm">new String(bytes, UTF_8)</code> allocates both a <code class="bg-slate-100 px-1 rounded text-sm">byte[]</code> and a <code class="bg-slate-100 px-1 rounded text-sm">String</code></li>
+            <li>The object is immediately garbage after the comparison&mdash;pure waste</li>
+            <li>This happens for <em>every</em> <code class="bg-slate-100 px-1 rounded text-sm">get()</code>, <code class="bg-slate-100 px-1 rounded text-sm">containsKey()</code>, <code class="bg-slate-100 px-1 rounded text-sm">put()</code> (to check for existing keys), and <code class="bg-slate-100 px-1 rounded text-sm">remove()</code></li>
+        </ul>
+
+        <div class="bg-red-50 border-l-4 border-red-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-red-800">
+                <strong>The irony:</strong> You moved your data off-heap to escape GC pressure, but your lookup path
+                is now <em>creating</em> garbage on every call. The serialization tax wipes out the benefit of going off-heap.
+            </p>
+        </div>
+
+        <p class="mb-4">
+            This isn&rsquo;t a theoretical concern. It&rsquo;s the primary reason many off-heap map implementations
+            underperform expectations. The data may live off-heap, but the <em>operations</em> keep dragging objects
+            back onto the heap.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 2. The Insight: Compare Bytes, Not Objects     -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">2. The Insight: Compare Bytes, Not Objects</h2>
+
+        <p class="mb-4">
+            The solution is embarrassingly simple once you see it: <strong>don&rsquo;t deserialize at all</strong>.
+        </p>
+
+        <p class="mb-4">
+            Instead of reconstructing a Java object from the stored bytes and then calling
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">.equals()</code>, compare the raw byte
+            representations directly. If the bytes are identical, the keys are equal.
+        </p>
+
+        <p class="mb-4">
+            This works for any type with <em>deterministic serialization</em>&mdash;a property where the same
+            logical value always serializes to the exact same byte sequence. UTF-8 encoding is deterministic.
+            Big-endian integer encoding is deterministic. If your serializer is deterministic, byte equality
+            implies object equality.
+        </p>
+
+        <div class="bg-emerald-50 border-l-4 border-emerald-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-emerald-800">
+                <strong>Key insight:</strong> No deserialization &rarr; no heap allocation &rarr; no GC pressure during lookups.
+                The lookup path touches only native memory. This is the core of Mapish&rsquo;s performance advantage.
+            </p>
+        </div>
+
+        <p class="mb-4">
+            But comparing bytes one at a time in a Java loop would be painfully slow&mdash;certainly slower
+            than just deserializing and calling <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">.equals()</code>.
+            We need something faster. Much faster.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 3. MemorySegment.mismatch() — The Secret Weapon -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">3. <code class="text-indigo-600">MemorySegment.mismatch()</code> &mdash; The Secret Weapon</h2>
+
+        <p class="mb-4">
+            Java&rsquo;s Foreign Function &amp; Memory API provides a method that most developers have never
+            heard of: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">MemorySegment.mismatch()</code>.
+            It compares two memory regions and returns <code class="bg-slate-100 px-1 rounded text-sm">-1</code>
+            if they are identical, or the index of the first differing byte.
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">long mismatch = MemorySegment.mismatch(
+    segment1, startOffset1, endOffset1,   // first region
+    segment2, startOffset2, endOffset2    // second region
+);
+// Returns -1 if regions are identical
+// Returns index of first differing byte otherwise</code></pre></div>
+
+        <p class="mt-6 mb-4">
+            Simple API. But the magic is in the implementation.
+        </p>
+
+        <p class="mb-4">
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">MemorySegment.mismatch()</code> is
+            <strong>intrinsified by the JVM</strong>. On modern x86 CPUs, HotSpot replaces the Java method body
+            with hand-tuned machine code that uses SIMD vector instructions&mdash;AVX2 or AVX-512 where available.
+            That means comparing <strong>32 or 64 bytes per CPU instruction</strong> instead of one byte at a time.
+        </p>
+
+        <p class="mb-4">
+            It&rsquo;s the off-heap equivalent of <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">Arrays.mismatch()</code>,
+            which has been intrinsified since Java&nbsp;9. Both map down to the same underlying
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">vectorizedMismatch</code> stub in HotSpot.
+        </p>
+
+        <div class="bg-indigo-50 border-l-4 border-indigo-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-indigo-800">
+                <strong>What this means in practice:</strong> comparing a 128-byte key takes roughly the same time
+                as comparing a 4-byte key. The comparison cost is dominated by memory access latency, not
+                comparison logic. SIMD makes the actual comparison essentially free.
+            </p>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 4. How Mapish Implements Zero-Deserialization  -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">4. How Mapish Implements Zero-Deserialization Equals</h2>
+
+        <p class="mb-4">
+            The technique is baked into Mapish&rsquo;s <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">Serializer&lt;T&gt;</code>
+            interface. Every serializer must implement four methods:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">public interface Serializer&lt;T&gt; {
+    void serialize(T obj, MemorySegment segment, long offset);
+    T deserialize(MemorySegment segment, long offset);
+    long sizeBytes();
+    boolean equals(T obj, MemorySegment segment, long offset);  // &larr; the key method
+}</code></pre></div>
+
+        <p class="mt-6 mb-4">
+            The first three are standard. The fourth is where the trick lives:
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">equals(T obj, MemorySegment segment, long offset)</code>
+            compares a Java object (the lookup key you&rsquo;re searching for) against serialized bytes
+            stored in native memory&mdash;<strong>without ever deserializing those bytes</strong>.
+        </p>
+
+        <p class="mb-4">
+            Let&rsquo;s look at the <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">StringSerializer</code>
+            implementation&mdash;the most interesting case because strings are variable-length.
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">@Override
+public boolean equals(String obj, MemorySegment segment, long offset) {
+    if (obj == null) return false;
+
+    int length = segment.get(ValueLayout.JAVA_INT, offset);           // 1&#x20DD;
+    byte[] bytes = obj.getBytes(StandardCharsets.UTF_8);              // 2&#x20DD;
+    if (length != bytes.length) return false;                         // 3&#x20DD;
+
+    if (length == 0) return true;
+
+    MemorySegment objSegment = MemorySegment.ofArray(bytes);          // 4&#x20DD;
+    return MemorySegment.mismatch(                                    // 5&#x20DD;
+        segment, offset + 4, offset + 4 + length,
+        objSegment, 0, length
+    ) == -1;                                                          // 6&#x20DD;
+}</code></pre></div>
+
+        <p class="mt-6 mb-2">
+            Let&rsquo;s walk through each step:
+        </p>
+
+        <ol class="list-decimal list-inside mb-6 space-y-3 text-slate-700">
+            <li>
+                <strong>Read the stored string length</strong> &mdash;
+                The first 4 bytes at <code class="bg-slate-100 px-1 rounded text-sm">offset</code> hold the UTF-8
+                byte length of the stored string. This is a single native memory read&mdash;no allocation.
+            </li>
+            <li>
+                <strong>Convert the lookup key to UTF-8 bytes</strong> &mdash;
+                We need the raw bytes of the key we&rsquo;re <em>searching for</em>. This is the one allocation
+                in the method, and it&rsquo;s unavoidable: we need the bytes to compare against. Crucially,
+                we are <em>not</em> constructing anything from the stored bytes.
+            </li>
+            <li>
+                <strong>Length mismatch &rarr; fast reject</strong> &mdash;
+                If the stored string is 12 bytes long and our lookup key is 15 bytes, they can&rsquo;t be equal.
+                Reject immediately without touching any more native memory.
+            </li>
+            <li>
+                <strong>Wrap the lookup key&rsquo;s bytes as a MemorySegment</strong> &mdash;
+                <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment.ofArray(bytes)</code> creates a
+                segment backed by the existing <code class="bg-slate-100 px-1 rounded text-sm">byte[]</code>.
+                This is a zero-copy operation&mdash;no data is moved.
+            </li>
+            <li>
+                <strong>Use <code>mismatch()</code> to compare</strong> &mdash;
+                Compare the stored bytes (starting at <code class="bg-slate-100 px-1 rounded text-sm">offset + 4</code>,
+                skipping the length prefix) against the lookup key&rsquo;s bytes. The JVM uses SIMD
+                instructions under the hood.
+            </li>
+            <li>
+                <strong>No String object is ever constructed from native memory</strong> &mdash;
+                The stored bytes are compared in-place. If they match, we have our entry.
+                If they don&rsquo;t, we move to the next probe position. Either way:
+                <strong>zero deserialization</strong>.
+            </li>
+        </ol>
+
+        <p class="mb-4">
+            For fixed-size types the implementation is even simpler. Here&rsquo;s
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">IntegerSerializer.equals()</code>:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">@Override
+public boolean equals(Integer obj, MemorySegment segment, long offset) {
+    if (obj == null) return false;
+    return obj.intValue() == segment.get(ValueLayout.JAVA_INT, offset);
+}
+// One memory read. Zero allocations. No mismatch() needed.</code></pre></div>
+
+        <p class="mt-6 mb-4">
+            Primitives can be compared with a single native memory read&mdash;no byte comparison
+            needed at all. The <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">mismatch()</code>
+            technique shines for variable-length or larger fixed-size types where a simple
+            <code class="bg-slate-100 px-1 rounded text-sm">==</code> isn&rsquo;t sufficient.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 5. The Two-Layer Defense                       -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">5. The Two-Layer Defense: Hash Caching + Binary Comparison</h2>
+
+        <p class="mb-4">
+            The zero-deserialization <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">equals()</code> is powerful,
+            but Mapish layers <em>two</em> optimizations to make the probe chain even faster.
+        </p>
+
+        <!-- Layer 1 -->
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Layer 1: Hash Caching</h3>
+
+        <p class="mb-4">
+            Every entry in Mapish&rsquo;s native memory layout stores its 32-bit hash code at a fixed offset
+            (byte&nbsp;4 of the entry, right after the 1-byte status flag):
+        </p>
+
+        <div class="bg-slate-100 rounded-xl p-5 mb-6 font-mono text-sm text-slate-700 overflow-x-auto">
+            <div class="flex items-center gap-1">
+                <span class="bg-slate-300 text-slate-700 px-3 py-1.5 rounded-l-lg text-center" style="min-width:60px">status<br><span class="text-xs text-slate-500">1&thinsp;B</span></span>
+                <span class="bg-indigo-200 text-indigo-800 px-3 py-1.5 text-center" style="min-width:70px">hash<br><span class="text-xs text-indigo-500">4&thinsp;B</span></span>
+                <span class="bg-sky-200 text-sky-800 px-3 py-1.5 text-center flex-1">key (serialized)<br><span class="text-xs text-sky-500">keySize bytes</span></span>
+                <span class="bg-amber-200 text-amber-800 px-3 py-1.5 rounded-r-lg text-center flex-1">value (serialized)<br><span class="text-xs text-amber-500">valueSize bytes</span></span>
+            </div>
+        </div>
+
+        <p class="mb-4">
+            During linear probing, the map reads the stored hash <em>first</em>&mdash;before touching any key bytes:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// Inside findEntryIndex() — the core lookup loop
+for (int i = 0; i &lt; capacity; i++) {
+    long offset = ((long) index) * entrySize;
+    byte status = memorySegment.get(ValueLayout.JAVA_BYTE, offset);
+
+    if (status == EMPTY) {
+        return -1;                                       // end of probe chain
+    } else if (status == FILLED) {
+        int storedHash = memorySegment.get(ValueLayout.JAVA_INT, offset + hashOffset);
+        if (storedHash == h) {                           // Layer 1: integer compare
+            if (keySerializer.equals(key, memorySegment, offset + keyOffset)) {
+                return index;                            // Layer 2: binary compare
+            }
+        }
+    }
+    index = (index + 1) % capacity;                      // linear probing
+}</code></pre></div>
+
+        <p class="mt-6 mb-4">
+            If the hashes don&rsquo;t match, the keys <em>cannot</em> be equal. Skip immediately. The cost?
+            A single <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">MemorySegment.get(JAVA_INT, &hellip;)</code>&mdash;one
+            4-byte native memory read. With a well-distributed hash function, the overwhelming
+            majority of probe-chain comparisons end right here.
+        </p>
+
+        <!-- Layer 2 -->
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Layer 2: Binary Comparison (<code>mismatch</code>)</h3>
+
+        <p class="mb-4">
+            Only when hashes match&mdash;which is rare with a good hash function&mdash;does the map fall
+            through to the full binary comparison via the serializer&rsquo;s
+            <code class="bg-slate-100 px-1 rounded text-sm">equals()</code> method. Even then,
+            no deserialization occurs. The comparison runs directly on native memory with
+            hardware-accelerated vector instructions.
+        </p>
+
+        <div class="bg-emerald-50 border-l-4 border-emerald-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-emerald-800">
+                <strong>The result:</strong> most probing steps are a single integer comparison. The rare hash
+                collision triggers a fast binary compare. Deserialization <strong>never</strong> happens during lookups.
+            </p>
+        </div>
+
+        <p class="mb-4">
+            Let&rsquo;s trace through a concrete example. Suppose the map has 1,000 entries with a 50%
+            load factor (2,048 slots), and we call <code class="bg-slate-100 px-1 rounded text-sm">get("user-42")</code>:
+        </p>
+
+        <ol class="list-decimal list-inside mb-4 space-y-2 text-slate-700">
+            <li>Hash <code class="bg-slate-100 px-1 rounded text-sm">"user-42"</code> &rarr; slot&nbsp;173</li>
+            <li>Slot&nbsp;173: status is <code class="bg-slate-100 px-1 rounded text-sm">FILLED</code>, stored hash is <code class="bg-slate-100 px-1 rounded text-sm">0x4A2F</code>, our hash is <code class="bg-slate-100 px-1 rounded text-sm">0x7B01</code> &rarr; <strong>skip</strong> (integer compare)</li>
+            <li>Slot&nbsp;174: status is <code class="bg-slate-100 px-1 rounded text-sm">FILLED</code>, stored hash matches &rarr; compare bytes with <code class="bg-slate-100 px-1 rounded text-sm">mismatch()</code> &rarr; <strong>match!</strong></li>
+            <li>Deserialize only the <em>value</em> and return it</li>
+        </ol>
+
+        <p class="mb-4">
+            Total heap allocations for the key lookup: <strong>zero</strong>. The only deserialization
+            that occurs is for the value being returned&mdash;and that&rsquo;s unavoidable because you
+            need the Java object.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 6. Performance Impact                          -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">6. Performance Impact</h2>
+
+        <p class="mb-4">
+            The zero-deserialization strategy has a measurable impact in Mapish&rsquo;s JMH benchmarks,
+            particularly when compared to other off-heap map implementations like Yahoo&rsquo;s
+            <a href="https://github.com/yahoo/Oak" class="text-indigo-600 underline decoration-indigo-300 hover:decoration-indigo-600 transition">Oak</a>.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-3">GC allocation rate</h3>
+
+        <p class="mb-4">
+            The starkest difference is in allocation rates during lookup operations. Oak&rsquo;s
+            <code class="bg-slate-100 px-1 rounded text-sm">get()</code> and
+            <code class="bg-slate-100 px-1 rounded text-sm">containsKey()</code> create internal Java
+            objects on every call&mdash;<code class="bg-slate-100 px-1 rounded text-sm">OakScopedReadBuffer</code>
+            instances, internal iterators, and intermediate byte arrays. These are short-lived objects,
+            but in a tight loop they accumulate fast.
+        </p>
+
+        <p class="mb-4">
+            Mapish&rsquo;s lookup path, by contrast, allocates <strong>near-zero bytes on the heap</strong>.
+            The only allocation is the UTF-8 byte array for the lookup key in
+            <code class="bg-slate-100 px-1 rounded text-sm">StringSerializer.equals()</code>&mdash;and
+            even that could be eliminated with a thread-local buffer for the truly allocation-obsessed.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-3">Throughput and latency</h3>
+
+        <p class="mb-4">
+            Lower allocation rates translate directly to:
+        </p>
+
+        <ul class="list-disc list-inside mb-4 space-y-2 text-slate-700">
+            <li><strong>Higher throughput</strong> &mdash; less time spent in allocation and GC means more time executing your code</li>
+            <li><strong>More predictable latency</strong> &mdash; fewer GC pauses means fewer tail-latency spikes</li>
+            <li><strong>Better scalability under load</strong> &mdash; allocation pressure compounds under high request rates</li>
+        </ul>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6">
+            <p class="text-sm text-slate-600 mb-3">
+                <strong>Memory layout comparison</strong> &mdash; what happens during <code class="bg-slate-100 px-1 rounded text-sm">map.get("user-42")</code>
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p class="font-semibold text-red-700 text-sm mb-2">Naive off-heap map</p>
+                    <ol class="text-xs text-red-800 space-y-1 list-decimal list-inside">
+                        <li>Read bytes from native memory</li>
+                        <li>Allocate <code>byte[]</code> on heap</li>
+                        <li>Allocate <code>String</code> on heap</li>
+                        <li>Call <code>.equals()</code></li>
+                        <li>Discard both objects &rarr; GC</li>
+                        <li>Repeat per probe step</li>
+                    </ol>
+                </div>
+                <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                    <p class="font-semibold text-emerald-700 text-sm mb-2">Mapish</p>
+                    <ol class="text-xs text-emerald-800 space-y-1 list-decimal list-inside">
+                        <li>Read 4-byte hash from native memory</li>
+                        <li>Integer compare &rarr; skip or continue</li>
+                        <li>Read length + <code>mismatch()</code> in-place</li>
+                        <li>Zero heap objects created</li>
+                        <li>No GC pressure</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 7. When This Technique Applies                 -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">7. When This Technique Applies</h2>
+
+        <p class="mb-4">
+            The zero-deserialization equals pattern works for any type with <em>deterministic serialization</em>:
+            the same logical value must always serialize to the exact same byte sequence.
+        </p>
+
+        <div class="overflow-x-auto mb-6">
+            <table class="w-full text-sm border-collapse">
+                <thead>
+                    <tr class="bg-slate-100">
+                        <th class="text-left px-4 py-2 font-semibold text-slate-700 border-b border-slate-200">Type</th>
+                        <th class="text-left px-4 py-2 font-semibold text-slate-700 border-b border-slate-200">Deterministic?</th>
+                        <th class="text-left px-4 py-2 font-semibold text-slate-700 border-b border-slate-200">Notes</th>
+                    </tr>
+                </thead>
+                <tbody class="text-slate-700">
+                    <tr class="border-b border-slate-100">
+                        <td class="px-4 py-2"><code class="bg-slate-100 px-1 rounded">int</code>, <code class="bg-slate-100 px-1 rounded">long</code>, <code class="bg-slate-100 px-1 rounded">short</code>, <code class="bg-slate-100 px-1 rounded">byte</code></td>
+                        <td class="px-4 py-2 text-emerald-600 font-semibold">Yes</td>
+                        <td class="px-4 py-2">Fixed-width, single memory read &mdash; can use <code class="bg-slate-100 px-1 rounded">==</code> directly</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="px-4 py-2"><code class="bg-slate-100 px-1 rounded">char</code>, <code class="bg-slate-100 px-1 rounded">boolean</code></td>
+                        <td class="px-4 py-2 text-emerald-600 font-semibold">Yes</td>
+                        <td class="px-4 py-2">Trivially deterministic</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="px-4 py-2"><code class="bg-slate-100 px-1 rounded">String</code> (UTF-8)</td>
+                        <td class="px-4 py-2 text-emerald-600 font-semibold">Yes</td>
+                        <td class="px-4 py-2">UTF-8 encoding is deterministic &mdash; ideal for <code class="bg-slate-100 px-1 rounded">mismatch()</code></td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="px-4 py-2"><code class="bg-slate-100 px-1 rounded">float</code>, <code class="bg-slate-100 px-1 rounded">double</code></td>
+                        <td class="px-4 py-2 text-amber-600 font-semibold">Mostly</td>
+                        <td class="px-4 py-2"><code class="bg-slate-100 px-1 rounded">NaN != NaN</code> by IEEE 754, but serialized NaN bytes <em>do</em> match &mdash; needs special handling</td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-2">Custom structs</td>
+                        <td class="px-4 py-2 text-slate-500 font-semibold">Depends</td>
+                        <td class="px-4 py-2">Deterministic if field order and encoding are fixed; watch out for padding bytes</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="mb-4">
+            For custom serializers, the rule is straightforward: if your
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">serialize()</code> method always
+            produces the same bytes for equal objects, then you can implement
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">equals()</code> using
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">mismatch()</code>.
+        </p>
+
+        <div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-amber-800">
+                <strong>Caveat &mdash; floating-point NaN:</strong> IEEE&nbsp;754 defines
+                <code class="bg-amber-100 px-1 rounded text-sm">Float.NaN != Float.NaN</code>, but
+                the bit pattern <code class="bg-amber-100 px-1 rounded text-sm">0x7FC00000</code> is
+                deterministic. A byte-level comparison would say two NaN values are &ldquo;equal,&rdquo;
+                which is technically incorrect per IEEE semantics. Mapish&rsquo;s
+                <code class="bg-amber-100 px-1 rounded text-sm">FloatSerializer</code> and
+                <code class="bg-amber-100 px-1 rounded text-sm">DoubleSerializer</code> handle this
+                edge case explicitly.
+            </p>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- Closing                                        -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">Wrapping Up</h2>
+
+        <p class="mb-4">
+            The zero-deserialization lookup pattern is Mapish&rsquo;s most impactful performance optimization.
+            By combining hash caching with <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">MemorySegment.mismatch()</code>,
+            the map achieves key lookups that are:
+        </p>
+
+        <ul class="list-disc list-inside mb-6 space-y-2 text-slate-700">
+            <li><strong>Allocation-free</strong> on the lookup path (no deserialization, no heap objects)</li>
+            <li><strong>Hardware-accelerated</strong> via JVM intrinsics and SIMD vector instructions</li>
+            <li><strong>Short-circuited</strong> by integer hash comparison before touching key bytes</li>
+        </ul>
+
+        <p class="mb-4">
+            The technique is general-purpose. If you&rsquo;re building any system that compares structured
+            data in native memory&mdash;off-heap caches, memory-mapped file indices, custom network
+            protocol parsers&mdash;the same pattern applies: serialize deterministically, compare bytes
+            with <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">mismatch()</code>,
+            skip the object entirely.
+        </p>
+
+        <p class="mb-4">
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">MemorySegment.mismatch()</code> is
+            one of those quiet gems in the JDK. Most developers will never need it. But when you do
+            need it, nothing else comes close.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- Further Reading                                -->
+    <!-- ───────────────────────────────────────────── -->
+    <footer class="border-t border-slate-200 pt-8">
+        <h3 class="text-lg font-semibold text-slate-800 mb-3">Further Reading</h3>
+        <ul class="list-disc list-inside space-y-2 text-slate-600 text-sm">
+            <li><a href="why-off-heap.html" class="text-indigo-600 underline decoration-indigo-300 hover:decoration-indigo-600 transition">Why Off-Heap? Understanding Java&rsquo;s Memory Model and the FFM API</a></li>
+            <li><a href="open-addressing-linear-probing.html" class="text-indigo-600 underline decoration-indigo-300 hover:decoration-indigo-600 transition">Open Addressing &amp; Linear Probing: Cache-Friendly Hash Maps</a></li>
+            <li><a href="comparison.html" class="text-indigo-600 underline decoration-indigo-300 hover:decoration-indigo-600 transition">Mapish vs. Oak: Benchmark Comparison</a></li>
+        </ul>
+    </footer>
+
+</article>
+
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    </footer>
+
+</body>
+</html>

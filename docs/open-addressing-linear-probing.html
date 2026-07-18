@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Addressing & Linear Probing | Off-Heap Mapish</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <style>pre[class*="language-"],code[class*="language-"]{background:transparent;text-shadow:none}</style>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="text-lg font-bold tracking-tight hover:text-blue-300 transition">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
+                <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
+                <a href="why-off-heap.html" class="hover:text-blue-300 transition">Why Off-Heap?</a>
+                <a href="open-addressing-linear-probing.html" class="text-blue-300">Open Addressing</a>
+                <a href="zero-deserialization-lookups.html" class="hover:text-blue-300 transition">Zero-Deserialization</a>
+            </div>
+            <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hidden md:inline-block hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+        </div>
+    </nav>
+
+<article class="max-w-3xl mx-auto px-6 py-16 text-slate-800 leading-relaxed">
+
+    <!-- Title & Meta -->
+    <header class="mb-14">
+        <p class="text-sm font-semibold uppercase tracking-widest text-indigo-600 mb-3">Technical Deep Dive</p>
+        <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 mb-4">
+            Open Addressing &amp; Linear Probing: Why Cache-Friendly Hash Tables&nbsp;Win
+        </h1>
+        <p class="text-lg text-slate-500">
+            How Mapish&rsquo;s hash table design exploits CPU caches to outperform Java&rsquo;s HashMap&mdash;and
+            why the humble linear probe is more powerful than it&nbsp;looks.
+        </p>
+        <div class="mt-6 flex items-center gap-3 text-sm text-slate-400">
+            <time datetime="2026-07-18">July 18, 2026</time>
+            <span>&middot;</span>
+            <span>14 min read</span>
+        </div>
+    </header>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- Introduction                                   -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <p class="mb-4">
+            If you&rsquo;ve written Java for any length of time, <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">java.util.HashMap</code>
+            is probably your most-used data structure. It&rsquo;s flexible, well-tested, and &ldquo;fast enough&rdquo; for
+            almost everything. But &ldquo;fast enough&rdquo; has a ceiling, and that ceiling is shaped by something most
+            Java developers never think about: <strong>CPU cache&nbsp;lines</strong>.
+        </p>
+        <p class="mb-4">
+            This post explains how HashMap works under the hood, why its memory layout fights against your CPU,
+            and how the <a href="https://github.com/bhf/mapish" class="text-indigo-600 underline hover:text-indigo-800">Mapish</a>
+            project takes a radically different approach&mdash;open addressing with linear probing in a single
+            contiguous block of off-heap memory&mdash;to turn the hardware into an ally.
+        </p>
+        <p class="mb-4">
+            Think of HashMap&rsquo;s chaining like a filing cabinet where each drawer has sticky notes pointing to
+            <em>other drawers across the room</em>. Open addressing is like a single long shelf where you just
+            slide to the next slot.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 1. How java.util.HashMap Works                 -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">1. How <code class="text-2xl">java.util.HashMap</code> Works (Separate Chaining)</h2>
+
+        <p class="mb-4">
+            HashMap uses a strategy called <strong>separate chaining</strong>. Internally it maintains an array of
+            buckets (<code class="bg-slate-100 px-1 rounded text-sm">Node&lt;K,V&gt;[]</code>). When you call
+            <code class="bg-slate-100 px-1 rounded text-sm">put(key, value)</code>, the map hashes the key to find
+            a bucket index. If two keys hash to the same bucket&mdash;a <em>collision</em>&mdash;the new entry
+            is appended to a linked list hanging off that bucket.
+        </p>
+
+        <p class="mb-4">Here&rsquo;s what that looks like conceptually:</p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-plaintext"><code class="language-plaintext">Bucket[0] &rarr; null
+Bucket[1] &rarr; Node("key1") &rarr; Node("key5") &rarr; null
+Bucket[2] &rarr; Node("key2") &rarr; null
+Bucket[3] &rarr; null
+Bucket[4] &rarr; Node("key3") &rarr; Node("key7") &rarr; Node("key9") &rarr; null
+Bucket[5] &rarr; null
+  ...
+</code></pre></div>
+
+        <p class="mt-4 mb-4">
+            Each <code class="bg-slate-100 px-1 rounded text-sm">Node</code> is a separate object on the Java heap,
+            containing references to the key, the value, and the <code class="bg-slate-100 px-1 rounded text-sm">.next</code>
+            pointer. Since Java&nbsp;8, if a single chain grows beyond 8&nbsp;entries, it converts to a Red-Black Tree
+            for $O(\log n)$ lookup instead of $O(n)$.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">The problems</h3>
+
+        <p class="mb-4">
+            This design is correct and general-purpose, but it has four structural weaknesses that matter
+            at scale:
+        </p>
+
+        <ol class="list-decimal list-inside mb-6 space-y-3 text-slate-700">
+            <li>
+                <strong>Object explosion.</strong> Every entry creates a <code class="bg-slate-100 px-1 rounded text-sm">HashMap.Node</code>
+                object on the heap. One million entries means one million node objects, plus the key and value
+                objects themselves. The GC must scan all of them.
+            </li>
+            <li>
+                <strong>Scattered memory.</strong> The JVM allocates objects wherever it finds space in the heap.
+                Node objects for the same bucket are rarely adjacent in memory. They&rsquo;re scattered across
+                the heap like books left open in different rooms.
+            </li>
+            <li>
+                <strong>Pointer chasing.</strong> To traverse a chain, the CPU must follow
+                <code class="bg-slate-100 px-1 rounded text-sm">.next</code> references. Each reference is a
+                pointer to a different heap location. If that location isn&rsquo;t in the CPU cache, you pay a
+                cache miss&mdash;and a main memory access is <strong>~100&times; slower</strong> than an L1 cache hit.
+            </li>
+            <li>
+                <strong>Tree conversion overhead.</strong> At 8+ collisions, HashMap converts the linked list to
+                a Red-Black Tree. This improves algorithmic complexity but adds significant memory overhead
+                (<code class="bg-slate-100 px-1 rounded text-sm">TreeNode</code> is larger than <code class="bg-slate-100 px-1 rounded text-sm">Node</code>)
+                and more pointer chasing per lookup.
+            </li>
+        </ol>
+
+        <div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-amber-800">
+                <strong>Key insight:</strong> HashMap&rsquo;s performance bottleneck is not the hash function or the
+                algorithm. It&rsquo;s the <em>memory access pattern</em>. The data structure fights the CPU at every step.
+            </p>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 2. Open Addressing: The Alternative            -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">2. Open Addressing: The Alternative</h2>
+
+        <p class="mb-4">
+            Open addressing is a collision resolution strategy where <strong>all entries live in the same
+            contiguous array</strong>. There are no linked lists, no separate node objects, no pointers to chase.
+            When a collision occurs, you simply look at the next slot in the array.
+        </p>
+
+        <p class="mb-4">The most common flavors are:</p>
+
+        <ul class="list-disc list-inside mb-6 space-y-2 text-slate-700">
+            <li>
+                <strong>Linear probing:</strong> On collision, try slot $i+1$, then $i+2$, then $i+3$, &hellip;
+            </li>
+            <li>
+                <strong>Quadratic probing:</strong> Try slot $i+1$, then $i+4$, then $i+9$, &hellip; (offsets grow quadratically)
+            </li>
+            <li>
+                <strong>Double hashing:</strong> Use a second hash function to compute the probe step size.
+            </li>
+        </ul>
+
+        <p class="mb-4">
+            All three avoid pointer chasing, but linear probing has a unique advantage that we&rsquo;ll explore
+            in the next section. First, let&rsquo;s understand why the flat-array model is fundamentally better
+            for memory access:
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h4 class="font-bold text-red-700 mb-2">Separate Chaining</h4>
+                <ul class="text-sm text-slate-600 space-y-1">
+                    <li>&bull; Each entry is a separate heap object</li>
+                    <li>&bull; Next pointer jumps to arbitrary memory</li>
+                    <li>&bull; CPU prefetcher can&rsquo;t predict access</li>
+                    <li>&bull; GC must scan every node</li>
+                </ul>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h4 class="font-bold text-green-700 mb-2">Open Addressing</h4>
+                <ul class="text-sm text-slate-600 space-y-1">
+                    <li>&bull; All entries in one flat array</li>
+                    <li>&bull; Next probe is at a predictable offset</li>
+                    <li>&bull; CPU prefetcher anticipates accesses</li>
+                    <li>&bull; Zero per-entry allocations</li>
+                </ul>
+            </div>
+        </div>
+
+        <p class="mb-4">
+            With open addressing, computing the address of <em>any</em> slot is just simple arithmetic:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-plaintext"><code class="language-plaintext">address = base + (index * entrySize)</code></pre></div>
+
+        <p class="mt-4">
+            No dereferencing. No indirection. One multiplication and one addition.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 3. Linear Probing and CPU Caches               -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">3. Linear Probing and CPU Caches (The Key Insight)</h2>
+
+        <p class="mb-4">
+            Modern CPUs don&rsquo;t access memory one byte at a time. When you read a single byte, the
+            CPU fetches an entire <strong>cache line</strong>&mdash;typically 64&nbsp;bytes&mdash;from main memory
+            into the L1 cache. Every subsequent access within that 64-byte window is served from cache,
+            which is roughly 100&times; faster than going to main memory.
+        </p>
+
+        <p class="mb-4">
+            This is where linear probing shines. Because probe slots are <em>physically adjacent</em> in memory,
+            the next slot you check is usually on the <strong>same cache line</strong> as the current one.
+            The CPU has already paid the memory access cost&mdash;the next probe is effectively free.
+        </p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6 font-mono text-sm overflow-x-auto">
+            <p class="text-slate-500 text-xs mb-2 font-sans font-semibold uppercase tracking-wider">Contiguous Entry Layout in Memory</p>
+            <div class="mb-3">
+                <span class="text-slate-400">Memory:  </span>
+                <span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded border border-indigo-200">&nbsp;Entry 0&nbsp;</span>
+                <span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded border border-indigo-200">&nbsp;Entry 1&nbsp;</span>
+                <span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded border border-indigo-200">&nbsp;Entry 2&nbsp;</span>
+                <span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded border border-indigo-200">&nbsp;Entry 3&nbsp;</span>
+                <span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded border border-indigo-200">&nbsp;Entry 4&nbsp;</span>
+                <span class="text-slate-400"> &hellip;</span>
+            </div>
+            <div>
+                <span class="text-slate-400">Cache:&nbsp;&nbsp; </span>
+                <span class="text-green-700">&lfloor;&mdash;&mdash;&mdash;&mdash;&mdash; Cache Line 1 &mdash;&mdash;&mdash;&mdash;&mdash;&rfloor;</span>
+                <span class="text-blue-700">&lfloor;&mdash;&mdash;&mdash; Cache Line 2 &mdash;&mdash;&mdash;&rfloor;</span>
+            </div>
+        </div>
+
+        <p class="mb-4">
+            With separate chaining, the picture is the opposite. Each <code class="bg-slate-100 px-1 rounded text-sm">.next</code>
+            pointer leads to a different heap location. The CPU fetches a cache line for the first node, then
+            follows the pointer and discovers the second node is in a <em>completely different</em> cache
+            line&mdash;maybe even on a different memory page. That&rsquo;s a cache miss every hop.
+        </p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6 font-mono text-sm overflow-x-auto">
+            <p class="text-slate-500 text-xs mb-2 font-sans font-semibold uppercase tracking-wider">Pointer Chasing in Separate Chaining</p>
+            <div class="space-y-1">
+                <div>
+                    <span class="text-slate-400">Node A @ 0x1A00 </span>
+                    <span class="text-red-600">&rarr; .next = 0x5F80</span>
+                    <span class="text-slate-400 text-xs"> (cache miss!)</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">Node B @ 0x5F80 </span>
+                    <span class="text-red-600">&rarr; .next = 0x92C0</span>
+                    <span class="text-slate-400 text-xs"> (cache miss!)</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">Node C @ 0x92C0 </span>
+                    <span class="text-red-600">&rarr; .next = null</span>
+                    <span class="text-slate-400 text-xs"> (found it, after 2 misses)</span>
+                </div>
+            </div>
+        </div>
+
+        <p class="mb-4">
+            Here&rsquo;s the punchline: <strong>linear probing often outperforms theoretically &ldquo;better&rdquo;
+            collision strategies</strong> (like quadratic probing or double hashing) precisely because it
+            maximizes cache locality. The constant factor of cache hits dominates the $O(1)$ amortized
+            analysis in practice.
+        </p>
+
+        <div class="bg-indigo-50 border-l-4 border-indigo-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-indigo-800">
+                <strong>Numbers that matter:</strong> An L1 cache hit takes ~1&thinsp;ns. A main memory access takes
+                ~100&thinsp;ns. If linear probing gives you 3 cache hits where chaining gives you 3 cache misses,
+                you&rsquo;re looking at <strong>~3&thinsp;ns vs ~300&thinsp;ns</strong>&mdash;a 100&times; difference
+                for the same number of probes.
+            </p>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 4. How Mapish Implements This                  -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">4. How Mapish Implements This</h2>
+
+        <p class="mb-4">
+            The <a href="https://github.com/bhf/mapish" class="text-indigo-600 underline hover:text-indigo-800">Mapish</a>
+            project implements open addressing with linear probing on a single off-heap
+            <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment</code>, allocated via Java&rsquo;s
+            Foreign Function &amp; Memory API. The entire hash table&mdash;all entries, all metadata&mdash;lives
+            in one contiguous block of native memory.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Allocation</h3>
+
+        <p class="mb-4">
+            A single call replaces what would be millions of <code class="bg-slate-100 px-1 rounded text-sm">new Node&lt;&gt;()</code>
+            allocations in a standard HashMap:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// The entire table is one allocation
+this.memorySegment = arena.allocate((long) this.capacity * entrySize);</code></pre></div>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Entry layout</h3>
+
+        <p class="mb-4">
+            Each slot has a fixed binary layout, computed once at construction time:
+        </p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-4 font-mono text-sm overflow-x-auto">
+            <div class="flex items-center gap-0">
+                <div class="bg-indigo-100 text-indigo-800 border border-indigo-300 px-3 py-2 rounded-l-lg text-center">
+                    <div class="font-bold">Status</div>
+                    <div class="text-xs">1&nbsp;byte</div>
+                </div>
+                <div class="bg-slate-200 text-slate-600 border border-slate-300 px-3 py-2 text-center">
+                    <div class="font-bold">Pad</div>
+                    <div class="text-xs">3&nbsp;bytes</div>
+                </div>
+                <div class="bg-amber-100 text-amber-800 border border-amber-300 px-3 py-2 text-center">
+                    <div class="font-bold">Hash</div>
+                    <div class="text-xs">4&nbsp;bytes</div>
+                </div>
+                <div class="bg-green-100 text-green-800 border border-green-300 px-3 py-2 text-center">
+                    <div class="font-bold">Key</div>
+                    <div class="text-xs">N&nbsp;bytes</div>
+                </div>
+                <div class="bg-blue-100 text-blue-800 border border-blue-300 px-3 py-2 rounded-r-lg text-center">
+                    <div class="font-bold">Value</div>
+                    <div class="text-xs">N&nbsp;bytes</div>
+                </div>
+            </div>
+        </div>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// Status flags — one byte per slot
+private static final byte EMPTY   = 0;
+private static final byte FILLED  = 1;
+private static final byte DELETED = 2;
+
+// Offset calculations — computed once in the constructor
+this.hashOffset  = 4;                                  // after 1-byte status + 3-byte pad
+this.keyOffset   = 8;                                  // after the 4-byte hash
+this.valueOffset = this.keyOffset + align(keySize, 8); // key size, 8-byte aligned
+this.entrySize   = this.valueOffset + align(valueSize, 8);</code></pre></div>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">The probe loop</h3>
+
+        <p class="mb-4">
+            The core of the lookup is <code class="bg-slate-100 px-1 rounded text-sm">findEntryIndex()</code>. This
+            is where linear probing happens:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">private long findEntryIndex(Object key) {
+    int h = hash(key);
+    int index = h;
+    for (int i = 0; i &lt; capacity; i++) {
+        long offset = ((long) index) * entrySize;
+        byte status = memorySegment.get(ValueLayout.JAVA_BYTE, offset);
+
+        if (status == EMPTY) {
+            return -1;
+        } else if (status == FILLED) {
+            int storedHash = memorySegment.get(ValueLayout.JAVA_INT, offset + hashOffset);
+            if (storedHash == h) {
+                if (keySerializer.equals((K) key, memorySegment, offset + keyOffset))
+                    return index;
+            }
+        }
+        index = (index + 1) % capacity; // linear probing
+    }
+    return -1;
+}</code></pre></div>
+
+        <p class="mt-4 mb-4">Walk through what happens, step by step:</p>
+
+        <ol class="list-decimal list-inside mb-6 space-y-2 text-slate-700">
+            <li>
+                <strong>Hash the key</strong> to get a starting index.
+            </li>
+            <li>
+                <strong>Read the status byte</strong> at that slot. If <code class="bg-slate-100 px-1 rounded text-sm">EMPTY</code>,
+                the key doesn&rsquo;t exist&mdash;return immediately.
+            </li>
+            <li>
+                If <code class="bg-slate-100 px-1 rounded text-sm">FILLED</code>, <strong>compare the stored hash</strong>
+                first. This is a fast rejection filter: a 4-byte integer comparison is far cheaper than a
+                full key comparison. Most non-matching entries are eliminated here.
+            </li>
+            <li>
+                If the hashes match, <strong>compare the actual key bytes</strong> using
+                <code class="bg-slate-100 px-1 rounded text-sm">keySerializer.equals()</code>&mdash;which can use
+                hardware-accelerated <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment.mismatch()</code>.
+            </li>
+            <li>
+                If no match, <strong>advance to the next slot</strong>:
+                <code class="bg-slate-100 px-1 rounded text-sm">index = (index + 1) % capacity</code>. This is the
+                linear probe. The next slot is physically adjacent in the <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment</code>,
+                so it&rsquo;s likely already in the CPU cache.
+            </li>
+        </ol>
+
+        <div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-amber-800">
+                <strong>Performance trick:</strong> The stored hash comparison at step 3 is crucial. Without it,
+                every probe would require a full key comparison against the serialized bytes. With it, most
+                non-matching slots are rejected with a single 4-byte integer check.
+            </p>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 5. The Tombstone Problem                       -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">5. The Tombstone Problem</h2>
+
+        <p class="mb-4">
+            With separate chaining, removing an entry is simple: unlink the node from the list. The chain
+            remains intact. With open addressing, deletion is trickier because it can <strong>break probe
+            chains</strong>.
+        </p>
+
+        <p class="mb-4">
+            Imagine three keys&mdash;A, B, and C&mdash;all hash to slot 5. They end up in slots 5, 6, and 7
+            via linear probing. Now you delete B (slot 6). If you simply mark slot 6 as
+            <code class="bg-slate-100 px-1 rounded text-sm">EMPTY</code>, a later lookup for C will start at
+            slot 5, see A, probe to slot 6, see <code class="bg-slate-100 px-1 rounded text-sm">EMPTY</code>&mdash;and
+            conclude that C doesn&rsquo;t exist. But C is sitting right there in slot 7.
+        </p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6 font-mono text-sm">
+            <p class="text-slate-500 text-xs mb-3 font-sans font-semibold uppercase tracking-wider">The Problem: Na&iuml;ve Deletion Breaks Chains</p>
+            <div class="space-y-1">
+                <div><span class="text-slate-400">Before: </span> <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded">[A]</span> <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded">[B]</span> <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded">[C]</span></div>
+                <div><span class="text-slate-400">Delete B:</span> <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded">[A]</span> <span class="bg-red-100 text-red-800 px-2 py-0.5 rounded">[&empty;]</span> <span class="bg-green-100 text-green-800 px-2 py-0.5 rounded">[C]</span></div>
+                <div><span class="text-slate-400">Find C:&nbsp;&nbsp;</span> <span class="text-slate-500">slot 5 &rarr; A (not C) &rarr; slot 6 &rarr; EMPTY &rarr; <span class="text-red-600 font-bold">&ldquo;C not found!&rdquo;</span> &uarr; WRONG</span></div>
+            </div>
+        </div>
+
+        <p class="mb-4">
+            The solution is a <strong>tombstone</strong>&mdash;a special status byte that means &ldquo;this slot
+            <em>was</em> occupied; skip over it and keep probing.&rdquo; In Mapish, the three status values are:
+        </p>
+
+        <div class="overflow-x-auto mb-6">
+            <table class="w-full text-sm border-collapse">
+                <thead>
+                    <tr class="bg-slate-100">
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">Status Byte</th>
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">Value</th>
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">Meaning</th>
+                    </tr>
+                </thead>
+                <tbody class="text-slate-700">
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-mono"><code>EMPTY</code></td>
+                        <td class="p-3 font-mono">0</td>
+                        <td class="p-3">Slot has never been used. <strong>Stop probing</strong>&mdash;the key isn&rsquo;t here.</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-mono"><code>FILLED</code></td>
+                        <td class="p-3 font-mono">1</td>
+                        <td class="p-3">Slot contains a live entry. Compare the key.</td>
+                    </tr>
+                    <tr>
+                        <td class="p-3 font-mono"><code>DELETED</code></td>
+                        <td class="p-3 font-mono">2</td>
+                        <td class="p-3">Tombstone. Slot was deleted. <strong>Skip and keep probing.</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="mb-4">
+            The removal code is straightforward&mdash;find the entry, then flip one byte:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// From OffHeapMap.remove() — tombstone deletion
+memorySegment.set(ValueLayout.JAVA_BYTE, offset, DELETED);
+size--;</code></pre></div>
+
+        <p class="mt-4 mb-4">
+            The trade-off is that tombstones can accumulate. If you insert and delete millions of entries
+            without resizing, the table fills with <code class="bg-slate-100 px-1 rounded text-sm">DELETED</code> markers,
+            and probe chains get longer even though the logical size hasn&rsquo;t grown. This is one reason
+            Mapish uses an aggressive load factor, which we&rsquo;ll cover next.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 6. Load Factor and Resizing                    -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">6. Load Factor and Resizing</h2>
+
+        <p class="mb-4">
+            The <strong>load factor</strong> determines when the table resizes. HashMap uses a default of
+            <strong>0.75</strong> (resize when 75% full). Mapish uses <strong>0.5</strong> (resize when 50% full).
+            Why the difference?
+        </p>
+
+        <p class="mb-4">
+            With separate chaining, high load factors are tolerable because collisions just make chains longer.
+            Performance degrades gracefully&mdash;you&rsquo;re adding one more node to a linked list.
+        </p>
+
+        <p class="mb-4">
+            With open addressing, high load factors are dangerous. As the table fills up, probe chains grow
+            exponentially. At 90% load, a lookup might need to scan dozens of slots before finding the target
+            or an empty slot. The expected number of probes for an unsuccessful search in linear probing
+            is approximately:
+        </p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6 text-center">
+            <p class="text-lg">
+                $$E[\text{probes}] \approx \frac{1}{2}\left(1 + \frac{1}{(1 - \alpha)^2}\right)$$
+            </p>
+            <p class="text-sm text-slate-500 mt-2">
+                where $\alpha$ is the load factor
+            </p>
+        </div>
+
+        <p class="mb-4">
+            At $\alpha = 0.5$, that&rsquo;s about 2.5 probes. At $\alpha = 0.75$, it&rsquo;s 8.5.
+            At $\alpha = 0.9$, it&rsquo;s 50.5. The 0.5 load factor keeps Mapish in the sweet spot:
+            short probe chains, high cache hit rates, and plenty of room for tombstones.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">The cost of resizing</h3>
+
+        <p class="mb-4">
+            When the threshold is reached, Mapish allocates a new segment at double the capacity, then
+            rehashes every <code class="bg-slate-100 px-1 rounded text-sm">FILLED</code> entry into the new segment:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">private void resize() {
+    int newCapacity = capacity * 2;
+    MemorySegment newSegment = arena.allocate((long) newCapacity * entrySize);
+
+    for (int i = 0; i &lt; capacity; i++) {
+        long offset = ((long) i) * entrySize;
+        byte status = memorySegment.get(ValueLayout.JAVA_BYTE, offset);
+        if (status == FILLED) {
+            K key = keySerializer.deserialize(memorySegment, offset + keyOffset);
+            V value = valueSerializer.deserialize(memorySegment, offset + valueOffset);
+            insert(newSegment, newCapacity, key, value, true);
+        }
+    }
+
+    this.capacity = newCapacity;
+    this.memorySegment = newSegment;
+    this.threshold = (int) (capacity * LOAD_FACTOR);
+}</code></pre></div>
+
+        <p class="mt-4 mb-4">
+            Resizing is expensive: it touches every live entry, deserializes keys and values, and re-serializes
+            them into the new segment. The tombstones are naturally cleaned up because only
+            <code class="bg-slate-100 px-1 rounded text-sm">FILLED</code> entries are copied.
+        </p>
+
+        <div class="bg-indigo-50 border-l-4 border-indigo-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-indigo-800">
+                <strong>Pro tip:</strong> If you know the approximate size of your dataset upfront, pre-size the
+                map to avoid resizes entirely:
+            </p>
+<div class="mt-3 bg-gray-800 p-4 rounded-lg font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// Pre-allocate for 2 million entries — no resizes needed
+var map = new OffHeapMap&lt;&gt;(keySerializer, valueSerializer, 2_000_000);</code></pre></div>
+        </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 7. Summary: Why This Matters                   -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">7. Summary: Why This Matters</h2>
+
+        <p class="mb-6">
+            The difference between HashMap and Mapish isn&rsquo;t just an implementation detail&mdash;it&rsquo;s
+            a fundamental rethinking of how a hash table interacts with hardware. Here&rsquo;s the comparison
+            at a glance:
+        </p>
+
+        <div class="overflow-x-auto mb-8">
+            <table class="w-full text-sm border-collapse">
+                <thead>
+                    <tr class="bg-slate-100">
+                        <th class="text-left p-3 font-semibold border-b border-slate-200"></th>
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">HashMap (Separate Chaining)</th>
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">Mapish (Open Addressing)</th>
+                    </tr>
+                </thead>
+                <tbody class="text-slate-700">
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Collision handling</td>
+                        <td class="p-3">Linked list / Red-Black Tree</td>
+                        <td class="p-3">Linear probing in flat array</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Memory layout</td>
+                        <td class="p-3">Scattered heap objects</td>
+                        <td class="p-3">Single contiguous <code class="bg-slate-100 px-1 rounded text-xs">MemorySegment</code></td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Cache behavior</td>
+                        <td class="p-3 text-red-600">Pointer chasing &rarr; cache misses</td>
+                        <td class="p-3 text-green-700">Sequential access &rarr; cache hits</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">GC pressure</td>
+                        <td class="p-3 text-red-600">N nodes + N keys + N values on heap</td>
+                        <td class="p-3 text-green-700">Zero &mdash; all data is off-heap</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Per-lookup allocations</td>
+                        <td class="p-3">Possible (TreeNode promotion)</td>
+                        <td class="p-3 text-green-700">Zero</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Deletion</td>
+                        <td class="p-3">Simple unlinking</td>
+                        <td class="p-3">Tombstone markers</td>
+                    </tr>
+                    <tr>
+                        <td class="p-3 font-medium">Default load factor</td>
+                        <td class="p-3">0.75</td>
+                        <td class="p-3">0.5</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="mb-4">
+            Three properties make Mapish fast where it counts:
+        </p>
+
+        <ol class="list-decimal list-inside mb-6 space-y-2 text-slate-700">
+            <li>
+                <strong>Cache-friendly probing.</strong> Linear probing through a contiguous memory segment
+                turns CPU caches into an advantage. Adjacent probes are free.
+            </li>
+            <li>
+                <strong>Zero allocations per lookup.</strong> No node objects created, no garbage generated.
+                Every <code class="bg-slate-100 px-1 rounded text-sm">get()</code> is a read-only scan of
+                existing native memory.
+            </li>
+            <li>
+                <strong>Off-heap storage.</strong> The entire data set is invisible to the GC.
+                No scanning, no compacting, no safepoint pauses caused by your hash table.
+                Latency becomes predictable.
+            </li>
+        </ol>
+
+        <p class="mb-6">
+            HashMap is an excellent general-purpose data structure and remains the right choice for most
+            applications. But when you&rsquo;re pushing millions of entries, need predictable tail latency,
+            or simply can&rsquo;t afford GC pauses&mdash;the combination of open addressing, linear probing,
+            and off-heap memory offers a fundamentally better contract with your hardware.
+        </p>
+
+        <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-6">
+            <h3 class="text-lg font-bold text-indigo-900 mb-3">Get Started with Mapish</h3>
+            <p class="text-sm text-indigo-800 mb-4">
+                Mapish is a zero-dependency, fully <code class="bg-white/60 px-1 rounded text-xs">java.util.Map</code>-compliant
+                off-heap hash map built on Java&rsquo;s FFM API. It&rsquo;s designed for single-threaded,
+                latency-sensitive workloads where GC pressure and cache locality matter.
+            </p>
+            <div class="flex flex-wrap gap-3">
+                <a href="https://github.com/bhf/mapish" class="bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-800 transition">View on GitHub</a>
+                <a href="index.html" class="bg-white text-indigo-700 border border-indigo-300 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-50 transition">Benchmarks &amp; Docs</a>
+                <a href="why-off-heap.html" class="bg-white text-indigo-700 border border-indigo-300 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-50 transition">Why Off-Heap?</a>
+            </div>
+        </div>
+    </section>
+
+</article>
+
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    </footer>
+
+</body>
+</html>

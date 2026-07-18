@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapish vs Oak vs MapDB | Off-Heap Java Map Comparison</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="text-lg font-bold tracking-tight hover:text-blue-300 transition">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
+                <a href="comparison.html" class="text-blue-300">Comparison</a>
+                <a href="why-off-heap.html" class="hover:text-blue-300 transition">Why Off-Heap?</a>
+                <a href="open-addressing-linear-probing.html" class="hover:text-blue-300 transition">Open Addressing</a>
+                <a href="zero-deserialization-lookups.html" class="hover:text-blue-300 transition">Zero-Deserialization</a>
+            </div>
+            <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hidden md:inline-block hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white py-16 px-6">
+        <div class="max-w-5xl mx-auto text-center">
+            <p class="uppercase tracking-widest text-blue-300 text-sm font-semibold mb-3">Library Comparison</p>
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4">Mapish vs Oak vs MapDB</h1>
+            <p class="text-lg text-blue-100 max-w-2xl mx-auto">
+                A detailed comparison of three off-heap Java map libraries — each solving GC pressure with fundamentally different trade-offs.
+            </p>
+            <div class="mt-8">
+                <a href="index.html" class="text-blue-200 hover:text-white transition text-sm font-medium">&larr; Back to Mapish Home</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Overview Section -->
+    <section class="py-16 px-6 border-b border-slate-200">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-3xl font-bold mb-8 text-center">Overview</h2>
+
+            <div class="prose prose-slate max-w-none space-y-5 text-slate-700 leading-relaxed">
+                <p>
+                    Java's garbage collector is one of its greatest strengths — until it isn't. In latency-sensitive applications
+                    such as financial systems, real-time analytics, and high-frequency trading engines, GC pauses measured in
+                    milliseconds can translate to measurable business impact. All three libraries discussed here — <strong>Mapish</strong>,
+                    <strong>Yahoo Oak</strong>, and <strong>MapDB</strong> — were created to solve the same fundamental problem:
+                    storing large volumes of key-value data outside the Java heap so the garbage collector never has to scan or
+                    compact it. However, they approach this problem with radically different architectures and target very different use cases.
+                </p>
+                <p>
+                    <strong>Mapish</strong> is a lean, modern, single-threaded off-heap hash map built on Java's Foreign Function &amp;
+                    Memory (FFM) API. It prioritizes raw throughput, minimal GC allocation, and full <code class="bg-slate-100 px-1 rounded text-sm">java.util.Map</code>
+                    compliance with zero runtime dependencies. <strong>Yahoo Oak</strong> takes a concurrent, sorted approach — a
+                    thread-safe off-heap skip-list designed for multi-threaded workloads that require ordered iteration. <strong>MapDB</strong>
+                    is the heavyweight of the three: a full embedded database engine that offers persistence, transactions, and
+                    crash-safe writes backed by memory-mapped files.
+                </p>
+                <p>
+                    Understanding these trade-offs is essential when choosing the right tool. A library optimized for single-threaded
+                    throughput will outperform a concurrent one in a single-threaded context, but cannot be shared across threads.
+                    A persistent engine gives you durability, but at the cost of raw speed. This page provides a structured comparison
+                    to help you make an informed decision based on your actual requirements.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature Comparison Table -->
+    <section class="py-16 px-6 bg-white border-b border-slate-200">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-3xl font-bold mb-10 text-center">Feature Comparison</h2>
+
+            <div class="overflow-x-auto rounded-xl shadow-lg border border-slate-200">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead>
+                        <tr class="bg-indigo-800 text-white">
+                            <th class="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Dimension</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold uppercase tracking-wider">Mapish</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold uppercase tracking-wider">Yahoo Oak</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold uppercase tracking-wider">MapDB</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        <!-- API Compliance -->
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">API Compliance</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Full java.util.Map
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    Custom API
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ ConcurrentMap
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Thread Safety -->
+                        <tr class="bg-slate-50">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Thread Safety</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    Single-threaded
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Thread-safe
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Thread-safe
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Ordering -->
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Ordering</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    Unordered
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Sorted
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Both options
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Persistence -->
+                        <tr class="bg-slate-50">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Persistence</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    In-memory only
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    In-memory only
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Disk + Transactions
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Memory Management -->
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Memory Management</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    FFM API (Modern)
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    sun.misc.Unsafe
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    DirectByteBuffer / MMap
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Java Version -->
+                        <tr class="bg-slate-50">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Java Version</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+                                    Java 21+
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+                                    Java 11+
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+                                    Java 8+
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Dependencies -->
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Dependencies</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Zero
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    External deps
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    External deps
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Key Lookup Strategy -->
+                        <tr class="bg-slate-50">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Key Lookup Strategy</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    Zero-deser binary mismatch
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    Comparator-based
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                                    Serializer-based
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- GC Impact -->
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">GC Impact</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Near-zero
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                                    Higher alloc rate
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    Moderate
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Complexity -->
+                        <tr class="bg-slate-50">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Complexity / Setup</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    ✓ Minimal
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    Moderate
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                                    Heavy
+                                </span>
+                            </td>
+                        </tr>
+                        <!-- Use Case Sweet Spot -->
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">Use Case Sweet Spot</td>
+                            <td class="px-6 py-4 text-center text-sm text-slate-600">
+                                Single-threaded hot paths, zero-GC caches, lookup tables
+                            </td>
+                            <td class="px-6 py-4 text-center text-sm text-slate-600">
+                                Concurrent sorted maps, multi-threaded ordered access
+                            </td>
+                            <td class="px-6 py-4 text-center text-sm text-slate-600">
+                                Persistent storage, embedded DB, transactional workloads
+                            </td>
+                        </tr>
+                        <!-- License -->
+                        <tr class="bg-slate-50">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">License</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">Apache 2.0</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">Apache 2.0</span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">Apache 2.0</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- When to Choose Each -->
+    <section class="py-16 px-6 border-b border-slate-200">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-3xl font-bold mb-12 text-center">When to Choose Each</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <!-- Mapish -->
+                <div class="bg-white rounded-xl shadow-sm border-2 border-indigo-200 p-6">
+                    <h3 class="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2">
+                        <span class="bg-indigo-700 text-white text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">Mapish</span>
+                    </h3>
+                    <p class="text-sm font-semibold text-slate-800 mb-3">Choose Mapish when&hellip;</p>
+                    <ul class="space-y-2 text-sm text-slate-700">
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>You need a <strong>single-threaded hot path</strong> with maximum throughput</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Zero GC allocation</strong> is a hard requirement</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>Full <code class="bg-slate-100 px-1 rounded text-xs">java.util.Map</code> compliance</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Zero dependencies</strong></span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Java 21+</strong> with modern FFM APIs</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>Lookup tables, caches, or reference data on a single thread</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Oak -->
+                <div class="bg-white rounded-xl shadow-sm border-2 border-slate-200 p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <span class="bg-slate-600 text-white text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">Yahoo Oak</span>
+                    </h3>
+                    <p class="text-sm font-semibold text-slate-800 mb-3">Choose Oak when&hellip;</p>
+                    <ul class="space-y-2 text-sm text-slate-700">
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Concurrent, off-heap sorted map</strong> shared across threads</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Multi-threaded access</strong> is essential</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Ordered iteration</strong> (range scans, sorted views)</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>Custom API with <code class="bg-slate-100 px-1 rounded text-xs">OakSerializer</code></span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Java 11+</strong> compatibility needed</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>Higher GC allocation is an acceptable trade-off</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- MapDB -->
+                <div class="bg-white rounded-xl shadow-sm border-2 border-slate-200 p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <span class="bg-slate-600 text-white text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full">MapDB</span>
+                    </h3>
+                    <p class="text-sm font-semibold text-slate-800 mb-3">Choose MapDB when&hellip;</p>
+                    <ul class="space-y-2 text-sm text-slate-700">
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Disk-backed persistence</strong> with crash-safe writes</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Transaction support</strong> (ACID semantics)</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>Data <strong>must survive JVM restarts</strong></span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Embedded database</strong> without a separate process</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span>Both <strong>sorted and unsorted</strong> options</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-500 mt-0.5 flex-shrink-0">&#10003;</span>
+                            <span><strong>Java 8+</strong> compatibility needed</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architectural Differences -->
+    <section class="py-16 px-6 bg-white border-b border-slate-200">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-3xl font-bold mb-12 text-center">Architectural Differences</h2>
+
+            <div class="space-y-10">
+                <!-- Mapish Architecture -->
+                <div class="bg-slate-50 rounded-xl border border-slate-200 p-8">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="bg-indigo-700 text-white text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">Mapish</span>
+                        <h3 class="text-xl font-bold text-slate-800">Contiguous MemorySegment via FFM API</h3>
+                    </div>
+                    <p class="text-slate-700 mb-4">
+                        Mapish allocates a <strong>single, contiguous off-heap memory segment</strong> using Java's
+                        <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment</code> and
+                        <code class="bg-slate-100 px-1 rounded text-sm">Arena</code> APIs (introduced in Java 21).
+                        The hash table uses <strong>open addressing with linear probing</strong>, meaning all entries — status flags,
+                        cached hashes, keys, and values — are packed sequentially in a flat byte array.
+                    </p>
+                    <div class="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm mb-4 overflow-x-auto">
+                        <span class="text-slate-400">// Memory layout per slot</span><br>
+                        [1B Status] [3B Padding] [4B Hash] [Key Bytes...] [Value Bytes...]
+                    </div>
+                    <p class="text-slate-600 text-sm">
+                        This layout maximizes <strong>cache locality</strong> — linear probing walks adjacent memory, staying within
+                        CPU cache lines. Key lookups use <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment.mismatch()</code>
+                        to perform a direct binary comparison against stored key bytes, completely bypassing deserialization. The 32-bit
+                        cached hash further short-circuits comparisons when hashes don't match. No <code class="bg-slate-100 px-1 rounded text-sm">sun.misc.Unsafe</code>
+                        is used — memory management is safe and well-defined.
+                    </p>
+                </div>
+
+                <!-- Oak Architecture -->
+                <div class="bg-slate-50 rounded-xl border border-slate-200 p-8">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="bg-slate-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">Yahoo Oak</span>
+                        <h3 class="text-xl font-bold text-slate-800">Custom Memory Pool with Skip-List</h3>
+                    </div>
+                    <p class="text-slate-700 mb-4">
+                        Oak implements a <strong>custom off-heap memory allocator</strong> built on top of
+                        <code class="bg-slate-100 px-1 rounded text-sm">sun.misc.Unsafe</code> and
+                        <code class="bg-slate-100 px-1 rounded text-sm">DirectByteBuffer</code>. Internally, it maintains a
+                        <strong>concurrent skip-list</strong> — a probabilistic sorted data structure where each node contains
+                        off-heap pointers to key and value memory blocks.
+                    </p>
+                    <p class="text-slate-600 text-sm">
+                        The skip-list design enables <strong>sorted iteration and range queries</strong>, but involves
+                        <strong>pointer chasing</strong> between non-contiguous memory regions. Thread safety is achieved through
+                        internal concurrency-control mechanisms, which require on-heap object allocations (increasing GC pressure).
+                        Developers must implement both <code class="bg-slate-100 px-1 rounded text-sm">OakSerializer</code> and
+                        <code class="bg-slate-100 px-1 rounded text-sm">OakComparator</code> for each key/value type — a higher
+                        integration burden than standard <code class="bg-slate-100 px-1 rounded text-sm">java.util.Map</code>.
+                    </p>
+                </div>
+
+                <!-- MapDB Architecture -->
+                <div class="bg-slate-50 rounded-xl border border-slate-200 p-8">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="bg-slate-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">MapDB</span>
+                        <h3 class="text-xl font-bold text-slate-800">Memory-Mapped Files with B-Tree Pages</h3>
+                    </div>
+                    <p class="text-slate-700 mb-4">
+                        MapDB is architecturally a <strong>full embedded database engine</strong>. It uses
+                        <strong>memory-mapped files</strong> (<code class="bg-slate-100 px-1 rounded text-sm">MappedByteBuffer</code>)
+                        to map disk-backed files into the virtual address space, allowing the OS to manage page caching. Internally,
+                        data is organized in <strong>B-Tree pages</strong> (for sorted maps) or hash table buckets (for hash maps),
+                        with pages flushed to disk for persistence.
+                    </p>
+                    <p class="text-slate-600 text-sm">
+                        This architecture gives MapDB unique capabilities — <strong>transactions, crash-safe writes, and data
+                        durability</strong> — that the other two libraries don't offer. The trade-off is complexity and overhead:
+                        memory-mapped I/O involves kernel-level page faults, <code class="bg-slate-100 px-1 rounded text-sm">DirectByteBuffer</code>
+                        objects add GC pressure, and the B-Tree page structure introduces indirection that reduces raw throughput
+                        compared to Mapish's flat memory layout.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Characteristics -->
+    <section class="py-16 px-6 border-b border-slate-200">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-3xl font-bold mb-4 text-center">Performance Characteristics</h2>
+            <p class="text-center text-slate-500 mb-12 text-sm">Qualitative analysis based on architectural properties and benchmark observations.</p>
+
+            <div class="space-y-8">
+                <!-- Throughput -->
+                <div class="bg-white rounded-xl border border-slate-200 p-8">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        Throughput
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="border-l-4 border-indigo-600 pl-4">
+                            <p class="font-semibold text-indigo-800 mb-1">Mapish — Highest single-threaded</p>
+                            <p class="text-sm text-slate-600">
+                                Contiguous memory layout with linear probing means lookups walk adjacent cache lines.
+                                Zero-deserialization key matching via <code class="bg-slate-100 px-1 rounded text-xs">mismatch()</code>
+                                and cached hashes eliminate the most expensive part of off-heap lookups. In JMH benchmarks,
+                                Mapish consistently delivers superior single-threaded ops/ms.
+                            </p>
+                        </div>
+                        <div class="border-l-4 border-slate-400 pl-4">
+                            <p class="font-semibold text-slate-700 mb-1">Oak — Concurrency over throughput</p>
+                            <p class="text-sm text-slate-600">
+                                The concurrent skip-list involves pointer chasing between non-contiguous memory blocks and
+                                internal concurrency control overhead. Single-threaded throughput is lower, but Oak scales
+                                across cores for concurrent workloads where Mapish cannot be used.
+                            </p>
+                        </div>
+                        <div class="border-l-4 border-slate-400 pl-4">
+                            <p class="font-semibold text-slate-700 mb-1">MapDB — Durability over speed</p>
+                            <p class="text-sm text-slate-600">
+                                Memory-mapped file I/O, B-Tree page traversal, and transaction journaling all add latency.
+                                MapDB trades raw speed for durability guarantees — page faults, fsync calls, and write-ahead
+                                logging are inherent costs of persistence.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GC Behavior -->
+                <div class="bg-white rounded-xl border border-slate-200 p-8">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <svg class="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        GC Allocation &amp; Pressure
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="border-l-4 border-emerald-500 pl-4">
+                            <p class="font-semibold text-emerald-800 mb-1">Mapish — Near-zero allocation</p>
+                            <p class="text-sm text-slate-600">
+                                Operations allocate virtually no on-heap objects. The FFM API's
+                                <code class="bg-slate-100 px-1 rounded text-xs">MemorySegment</code> slices are lightweight
+                                value-like objects. JMH profiling shows allocation rates approaching zero bytes per operation,
+                                making Mapish ideal for GC-sensitive hot paths.
+                            </p>
+                        </div>
+                        <div class="border-l-4 border-red-400 pl-4">
+                            <p class="font-semibold text-red-700 mb-1">Oak — Higher alloc rate</p>
+                            <p class="text-sm text-slate-600">
+                                Concurrency control mechanisms create on-heap objects for thread coordination (versioned
+                                references, epoch-based reclamation structures). JMH benchmarks reveal a measurably higher
+                                <code class="bg-slate-100 px-1 rounded text-xs">gc.alloc.rate.norm</code> compared to Mapish.
+                            </p>
+                        </div>
+                        <div class="border-l-4 border-amber-400 pl-4">
+                            <p class="font-semibold text-amber-700 mb-1">MapDB — Moderate overhead</p>
+                            <p class="text-sm text-slate-600">
+                                <code class="bg-slate-100 px-1 rounded text-xs">DirectByteBuffer</code> instances are tracked
+                                by the GC even though their backing memory is off-heap. Memory-mapped regions use OS page cache,
+                                but buffer management and serialization paths generate moderate heap allocations.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scalability -->
+                <div class="bg-white rounded-xl border border-slate-200 p-8">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                        Scalability Model
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="border-l-4 border-indigo-400 pl-4">
+                            <p class="font-semibold text-indigo-800 mb-1">Mapish — Vertical (single-thread)</p>
+                            <p class="text-sm text-slate-600">
+                                Scales vertically by maximizing the throughput of a single thread. In thread-per-core
+                                architectures, each core gets its own Mapish instance — no lock contention, no cache
+                                invalidation, maximum per-core efficiency.
+                            </p>
+                        </div>
+                        <div class="border-l-4 border-slate-400 pl-4">
+                            <p class="font-semibold text-slate-700 mb-1">Oak — Horizontal (multi-thread)</p>
+                            <p class="text-sm text-slate-600">
+                                Scales horizontally across threads sharing a single map instance. Ideal for conventional
+                                multi-threaded server applications where multiple request-handling threads access shared state.
+                            </p>
+                        </div>
+                        <div class="border-l-4 border-slate-400 pl-4">
+                            <p class="font-semibold text-slate-700 mb-1">MapDB — Horizontal + Persistent</p>
+                            <p class="text-sm text-slate-600">
+                                Scales to datasets larger than available RAM via disk-backed storage. Data survives
+                                restarts. Thread-safe access allows multi-threaded use, though not optimized for
+                                high-contention concurrent access like Oak.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary callout -->
+            <div class="mt-12 bg-indigo-50 border border-indigo-200 rounded-xl p-6">
+                <p class="text-sm text-indigo-900">
+                    <strong>Bottom line:</strong> If your workload is single-threaded and GC-sensitivity is paramount, Mapish
+                    delivers the best raw performance. If you need to share a sorted map across threads, Oak is purpose-built
+                    for that. If you need your data to survive a restart, MapDB is the only option among these three.
+                    <strong>They are complementary tools, not competitors.</strong>
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    </footer>
+
+</body>
+</html>

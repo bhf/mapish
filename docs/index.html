@@ -3,13 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Off-Heap Mapish | Zero-GC Java Hash Map</title>
+    <title>Off-Heap Mapish | Zero Dependency Off Heap Java Hash Map</title>
     <!-- Use Tailwind CSS for rapid styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <style>pre[class*="language-"],code[class*="language-"]{background:transparent;text-shadow:none}</style>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
     <!-- Chart.js for JMH Benchmark visuals -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <!-- Navigation -->
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="text-lg font-bold tracking-tight text-blue-300">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
+                <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
+                <a href="why-off-heap.html" class="hover:text-blue-300 transition">Why Off-Heap?</a>
+                <a href="open-addressing-linear-probing.html" class="hover:text-blue-300 transition">Open Addressing</a>
+                <a href="zero-deserialization-lookups.html" class="hover:text-blue-300 transition">Zero-Deserialization</a>
+            </div>
+            <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hidden md:inline-block hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+        </div>
+    </nav>
 
     <!-- Hero Section -->
     <header class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white py-20 px-6">
@@ -18,35 +37,17 @@
             <p class="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
                 A high-performance, single-threaded, off-heap hash map implementation using Java's Foreign Function & Memory (FFM) API.
             </p>
-            <div class="flex justify-center gap-4">
-                <a href="https://github.com/bhf/mapish" class="bg-white text-blue-900 px-6 py-3 rounded-lg font-bold shadow hover:bg-gray-100 transition">View on GitHub</a>
-                <a href="#benchmarks" class="border-2 border-white text-white px-6 py-3 rounded-lg font-bold hover:bg-white hover:text-blue-900 transition">View Benchmarks</a>
-            </div>
+            <div class="bg-gray-900 rounded-xl font-mono text-sm text-left max-w-lg mx-auto mb-8 p-4 overflow-x-auto"><pre class="language-java"><code class="language-java">var map = new OffHeapMap&lt;&gt;(
+    new StringSerializer(100),
+    new StringSerializer(100),
+    2_000_000
+);
+
+map.put("hello", "world");
+map.get("hello"); // "world"</code></pre></div>
         </div>
     </header>
 
-    <!-- Installation Section --> 
-    <section class="py-16 px-6 max-w-5xl mx-auto bg-slate-50 border-b border-slate-200"> 
-        <h2 class="text-3xl font-bold text-center mb-8">Installation</h2> 
-        <p class="text-center text-slate-600 mb-6">Mapish is published to GitHub Packages. Add the following to your <code>build.gradle.kts</code>:</p> 
-        <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg max-w-3xl mx-auto font-mono text-sm overflow-x-auto mb-4"> 
-<pre><code>repositories { 
-    mavenCentral() 
-    maven { 
-        url = uri("https://maven.pkg.github.com/bhf/mapish") 
-        credentials { 
-            username = System.getenv("GITHUB_ACTOR") 
-            password = System.getenv("GITHUB_TOKEN") 
-        } 
-    } 
-} 
-
-dependencies { 
-    implementation("com.bhf.mapish:off-heap-map:1.0-SNAPSHOT") 
-}</code></pre> 
-        </div> 
-        <p class="text-center text-sm text-slate-500">* Note: You will need a GitHub Personal Access Token (PAT) with the <code>read:packages</code> scope to consume the dependency.</p> 
-    </section>
     <!-- Features Section -->
     <section class="py-16 px-6 max-w-5xl mx-auto">
         <h2 class="text-3xl font-bold text-center mb-12">Why Off-Heap?</h2>
@@ -79,6 +80,15 @@ dependencies {
                     <!-- Tabs will be injected here -->
                 </nav>
             </div>
+
+            <div class="mb-8 hidden" id="sizeFilterContainer">
+                <div class="flex flex-wrap justify-center items-center gap-3">
+                    <span class="text-sm font-semibold text-slate-600">Filter by size:</span>
+                    <div id="sizeFilterButtons" class="flex flex-wrap justify-center gap-2">
+                        <!-- Size filter buttons injected here -->
+                    </div>
+                </div>
+            </div>
             
             <div id="chartsContainer" class="max-w-4xl mx-auto space-y-16">
                 <div class="text-center text-slate-500 py-10" id="loadingMessage">
@@ -88,9 +98,103 @@ dependencies {
         </div>
     </section>
 
+    <!-- Comparison Teaser -->
+    <section class="bg-white py-16 px-6 border-t border-slate-200">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-3xl font-bold text-center mb-4">How Does Mapish Compare?</h2>
+            <p class="text-slate-600 text-center mb-10 max-w-2xl mx-auto">Three off-heap Java map libraries, three radically different architectures.</p>
+            <div class="overflow-x-auto mb-10">
+                <table class="w-full text-sm border-collapse">
+                    <thead>
+                        <tr class="border-b-2 border-slate-200">
+                            <th class="py-3 px-4 text-left font-semibold text-slate-700">Dimension</th>
+                            <th class="py-3 px-4 text-left font-semibold text-indigo-800 bg-indigo-50">Mapish</th>
+                            <th class="py-3 px-4 text-left font-semibold text-slate-700">Yahoo Oak</th>
+                            <th class="py-3 px-4 text-left font-semibold text-slate-700">MapDB</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <tr>
+                            <td class="py-3 px-4 font-medium text-slate-700">Thread Safety</td>
+                            <td class="py-3 px-4 text-indigo-700 font-semibold bg-indigo-50">Single-threaded</td>
+                            <td class="py-3 px-4 text-slate-600">Thread-safe</td>
+                            <td class="py-3 px-4 text-slate-600">Thread-safe</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-4 font-medium text-slate-700">Memory API</td>
+                            <td class="py-3 px-4 text-indigo-700 font-semibold bg-indigo-50">FFM (Java 21+)</td>
+                            <td class="py-3 px-4 text-slate-600">sun.misc.Unsafe</td>
+                            <td class="py-3 px-4 text-slate-600">DirectByteBuffer</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-4 font-medium text-slate-700">Persistence</td>
+                            <td class="py-3 px-4 text-indigo-700 font-semibold bg-indigo-50">In-memory</td>
+                            <td class="py-3 px-4 text-slate-600">In-memory</td>
+                            <td class="py-3 px-4 text-slate-600">Disk + Transactions</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-4 font-medium text-slate-700">Dependencies</td>
+                            <td class="py-3 px-4 text-indigo-700 font-semibold bg-indigo-50">Zero</td>
+                            <td class="py-3 px-4 text-slate-600">Multiple</td>
+                            <td class="py-3 px-4 text-slate-600">Multiple</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-4 font-medium text-slate-700">java.util.Map</td>
+                            <td class="py-3 px-4 text-indigo-700 font-semibold bg-indigo-50">Full compliance</td>
+                            <td class="py-3 px-4 text-slate-600">Custom API</td>
+                            <td class="py-3 px-4 text-slate-600">ConcurrentMap</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="text-center">
+                <a href="comparison.html" class="bg-indigo-700 text-white px-8 py-3 rounded-lg font-bold shadow hover:bg-indigo-800 transition">View Full Comparison →</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Getting Started CTA -->
+    <section class="bg-gradient-to-r from-indigo-50 to-blue-50 py-16 px-6 border-t border-b border-indigo-100">
+        <div class="max-w-5xl mx-auto text-center">
+            <h2 class="text-3xl font-bold text-indigo-900 mb-4">Get Started in Minutes</h2>
+            <p class="text-indigo-700 mb-8 max-w-2xl mx-auto">
+                Add Mapish to your Gradle project, choose a serializer, and start putting data off-heap. Full <code class="bg-white/60 px-1 rounded text-sm">java.util.Map</code> API — no new interface to learn.
+            </p>
+            <a href="getting-started.html" class="bg-indigo-700 text-white px-8 py-3 rounded-lg font-bold shadow hover:bg-indigo-800 transition">Read the Tutorial →</a>
+        </div>
+    </section>
+
+    <!-- Technical Deep Dives -->
+    <section class="py-16 px-6">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-3xl font-bold text-center mb-4">Under the Hood</h2>
+            <p class="text-slate-600 text-center mb-12 max-w-2xl mx-auto">Deep-dive technical posts explaining the design decisions and performance techniques behind Mapish.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <a href="why-off-heap.html" class="group block bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition">
+                    <p class="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">Deep Dive</p>
+                    <h3 class="text-lg font-bold text-slate-900 group-hover:text-indigo-700 transition mb-3">Why Off-Heap? Java's Memory Model &amp; the FFM API</h3>
+                    <p class="text-sm text-slate-500">How GC pressure scales with live object count, and how the FFM API lets you escape it entirely.</p>
+                    <p class="text-indigo-600 text-sm font-medium mt-4">Read post →</p>
+                </a>
+                <a href="open-addressing-linear-probing.html" class="group block bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition">
+                    <p class="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">Deep Dive</p>
+                    <h3 class="text-lg font-bold text-slate-900 group-hover:text-indigo-700 transition mb-3">Open Addressing &amp; Linear Probing</h3>
+                    <p class="text-sm text-slate-500">Why contiguous memory and linear probing turn CPU caches into an ally — and how it beats HashMap's separate chaining.</p>
+                    <p class="text-indigo-600 text-sm font-medium mt-4">Read post →</p>
+                </a>
+                <a href="zero-deserialization-lookups.html" class="group block bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition">
+                    <p class="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">Deep Dive</p>
+                    <h3 class="text-lg font-bold text-slate-900 group-hover:text-indigo-700 transition mb-3">Zero-Deserialization Lookups</h3>
+                    <p class="text-sm text-slate-500">The <code class="text-xs">MemorySegment.mismatch()</code> trick — SIMD-accelerated binary comparison that eliminates heap allocation during lookups.</p>
+                    <p class="text-indigo-600 text-sm font-medium mt-4">Read post →</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
     <!-- Footer -->
     <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
-        <p>&copy; 2026 BHF. Released under standard Open Source licenses.</p>
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
     </footer>
 
     <!-- Chart Configuration -->
@@ -104,6 +208,7 @@ dependencies {
                 
                 // Group data by Benchmark Class (Data Type) -> Operation (put, get) -> Size -> Map Type
                 const benchmarks = {};
+                const allSizes = new Set();
                 
                 data.forEach(entry => {
                     const parts = entry.benchmark.split('.');
@@ -114,6 +219,8 @@ dependencies {
                     const operation = methodName.split('_')[1];
                     const size = entry.params.size;
                     const throughput = entry.primaryMetric.score;
+                    
+                    allSizes.add(size);
                     
                     let gcAllocNorm = 0;
                     if (entry.secondaryMetrics && entry.secondaryMetrics['·gc.alloc.rate.norm']) {
@@ -133,154 +240,217 @@ dependencies {
                     benchmarks[className][operation][size][mapType] = { throughput, gcAllocNorm };
                 });
                 
-                // Render charts for each data type
+                const sortedSizes = Array.from(allSizes).filter(s => parseInt(s) > 2).sort((a, b) => parseInt(a) - parseInt(b));
+                const activeSizes = new Set(sortedSizes);
                 const classNames = Object.keys(benchmarks);
+                let activeClassName = classNames.find(c => c.includes('String')) || classNames[0];
                 
-                for (const [className, ops] of Object.entries(benchmarks)) {
-                    const title = className.replace('Benchmark', '');
+                // Store chart instances for updates
+                const chartInstances = [];
+                
+                function renderCharts() {
+                    // Destroy existing charts
+                    chartInstances.forEach(c => c.destroy());
+                    chartInstances.length = 0;
+                    container.innerHTML = '';
                     
-                    const wrapper = document.createElement('div');
-                    wrapper.className = 'bg-slate-50 p-6 rounded-xl border border-slate-200 chart-wrapper';
-                    wrapper.dataset.className = className;
-                    wrapper.style.display = 'none'; // Hide initially
-                    
-                    const titleEl = document.createElement('h3');
-                    titleEl.className = 'text-2xl font-bold text-center text-slate-800 mb-6 border-b pb-4';
-                    titleEl.textContent = title + ' Results';
-                    wrapper.appendChild(titleEl);
+                    for (const [className, ops] of Object.entries(benchmarks)) {
+                        const title = className.replace('Benchmark', '');
+                        
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'bg-slate-50 p-6 rounded-xl border border-slate-200 chart-wrapper';
+                        wrapper.dataset.className = className;
+                        wrapper.style.display = className === activeClassName ? 'block' : 'none';
+                        
+                        const titleEl = document.createElement('h3');
+                        titleEl.className = 'text-2xl font-bold text-center text-slate-800 mb-6 border-b pb-4';
+                        titleEl.textContent = title + ' Results';
+                        wrapper.appendChild(titleEl);
 
-                    for (const [operation, sizes] of Object.entries(ops)) {
-                        const opContainer = document.createElement('div');
-                        opContainer.className = 'mb-12 last:mb-0 bg-white p-4 rounded-lg shadow-sm border border-slate-100';
-                        
-                        const opTitle = document.createElement('h4');
-                        opTitle.className = 'text-xl font-semibold text-center text-indigo-700 mb-6 capitalize';
-                        opTitle.textContent = operation + ' Operation';
-                        opContainer.appendChild(opTitle);
-
-                        const chartsGrid = document.createElement('div');
-                        chartsGrid.className = 'grid grid-cols-1 md:grid-cols-2 gap-8';
-                        opContainer.appendChild(chartsGrid);
-
-                        const thrptCanvas = document.createElement('canvas');
-                        const gcCanvas = document.createElement('canvas');
-                        
-                        const thrptWrapper = document.createElement('div');
-                        thrptWrapper.appendChild(thrptCanvas);
-                        chartsGrid.appendChild(thrptWrapper);
-                        
-                        const gcWrapper = document.createElement('div');
-                        gcWrapper.appendChild(gcCanvas);
-                        chartsGrid.appendChild(gcWrapper);
-
-                        wrapper.appendChild(opContainer);
-
-                        // Prepare chart data
-                        const labels = Object.keys(sizes).sort((a,b) => parseInt(a) - parseInt(b)).map(s => `Size: ${s}`);
-                        
-                        const javaThrpt = [];
-                        const offHeapThrpt = [];
-                        
-                        const javaGc = [];
-                        const offHeapGc = [];
-                        
-                        Object.keys(sizes).sort((a,b) => parseInt(a) - parseInt(b)).forEach(size => {
-                            javaThrpt.push(sizes[size]['OakMap (Yahoo)']?.throughput || 0);
-                            offHeapThrpt.push(sizes[size]['OffHeapMap']?.throughput || 0);
+                        for (const [operation, sizes] of Object.entries(ops)) {
+                            const opContainer = document.createElement('div');
+                            opContainer.className = 'mb-12 last:mb-0 bg-white p-4 rounded-lg shadow-sm border border-slate-100';
                             
-                            javaGc.push(sizes[size]['OakMap (Yahoo)']?.gcAllocNorm || 0);
-                            offHeapGc.push(sizes[size]['OffHeapMap']?.gcAllocNorm || 0);
-                        });
+                            const opTitle = document.createElement('h4');
+                            opTitle.className = 'text-xl font-semibold text-center text-indigo-700 mb-6 capitalize';
+                            opTitle.textContent = operation + ' Operation';
+                            opContainer.appendChild(opTitle);
 
-                        new Chart(thrptCanvas.getContext('2d'), {
-                            type: 'bar',
-                            data: {
-                                labels: labels,
-                                datasets: [
-                                    {
-                                        label: 'OakMap (Yahoo)',
-                                        data: javaThrpt,
-                                        backgroundColor: 'rgba(148, 163, 184, 0.7)',
-                                        borderColor: 'rgba(148, 163, 184, 1)',
-                                        borderWidth: 1
+                            const chartsGrid = document.createElement('div');
+                            chartsGrid.className = 'grid grid-cols-1 md:grid-cols-2 gap-8';
+                            opContainer.appendChild(chartsGrid);
+
+                            const thrptCanvas = document.createElement('canvas');
+                            const gcCanvas = document.createElement('canvas');
+                            
+                            const thrptWrapper = document.createElement('div');
+                            thrptWrapper.appendChild(thrptCanvas);
+                            chartsGrid.appendChild(thrptWrapper);
+                            
+                            const gcWrapper = document.createElement('div');
+                            gcWrapper.appendChild(gcCanvas);
+                            chartsGrid.appendChild(gcWrapper);
+
+                            wrapper.appendChild(opContainer);
+
+                            // Filter sizes based on active selection
+                            const filteredSizes = Object.keys(sizes)
+                                .filter(s => activeSizes.has(s))
+                                .sort((a, b) => parseInt(a) - parseInt(b));
+                            
+                            const labels = filteredSizes.map(s => `Size: ${s}`);
+                            
+                            const javaThrpt = [];
+                            const offHeapThrpt = [];
+                            const javaGc = [];
+                            const offHeapGc = [];
+                            
+                            filteredSizes.forEach(size => {
+                                javaThrpt.push(sizes[size]['OakMap (Yahoo)']?.throughput || 0);
+                                offHeapThrpt.push(sizes[size]['OffHeapMap']?.throughput || 0);
+                                javaGc.push(sizes[size]['OakMap (Yahoo)']?.gcAllocNorm || 0);
+                                offHeapGc.push(sizes[size]['OffHeapMap']?.gcAllocNorm || 0);
+                            });
+
+                            chartInstances.push(new Chart(thrptCanvas.getContext('2d'), {
+                                type: 'bar',
+                                data: {
+                                    labels: labels,
+                                    datasets: [
+                                        {
+                                            label: 'OakMap (Yahoo)',
+                                            data: javaThrpt,
+                                            backgroundColor: 'rgba(148, 163, 184, 0.7)',
+                                            borderColor: 'rgba(148, 163, 184, 1)',
+                                            borderWidth: 1
+                                        },
+                                        {
+                                            label: 'OffHeapMap',
+                                            data: offHeapThrpt,
+                                            backgroundColor: 'rgba(67, 56, 202, 0.8)',
+                                            borderColor: 'rgba(67, 56, 202, 1)',
+                                            borderWidth: 1
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            title: {
+                                                display: true,
+                                                text: 'Throughput (ops/ms)'
+                                            }
+                                        }
                                     },
-                                    {
-                                        label: 'OffHeapMap',
-                                        data: offHeapThrpt,
-                                        backgroundColor: 'rgba(67, 56, 202, 0.8)',
-                                        borderColor: 'rgba(67, 56, 202, 1)',
-                                        borderWidth: 1
-                                    }
-                                ]
-                            },
-                            options: {
-                                responsive: true,
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
+                                    plugins: {
                                         title: {
                                             display: true,
-                                            text: 'Throughput (ops/ms)'
+                                            text: 'Throughput (Higher is better)'
+                                        },
+                                        legend: {
+                                            position: 'top',
                                         }
                                     }
-                                },
-                                plugins: {
-                                    title: {
-                                        display: true,
-                                        text: 'Throughput (Higher is better)'
-                                    },
-                                    legend: {
-                                        position: 'top',
-                                    }
                                 }
-                            }
-                        });
-                        
-                        new Chart(gcCanvas.getContext('2d'), {
-                            type: 'bar',
-                            data: {
-                                labels: labels,
-                                datasets: [
-                                    {
-                                        label: 'OakMap (Yahoo)',
-                                        data: javaGc,
-                                        backgroundColor: 'rgba(220, 38, 38, 0.7)', // Red to imply costs
-                                        borderColor: 'rgba(220, 38, 38, 1)',
-                                        borderWidth: 1
+                            }));
+                            
+                            chartInstances.push(new Chart(gcCanvas.getContext('2d'), {
+                                type: 'bar',
+                                data: {
+                                    labels: labels,
+                                    datasets: [
+                                        {
+                                            label: 'OakMap (Yahoo)',
+                                            data: javaGc,
+                                            backgroundColor: 'rgba(220, 38, 38, 0.7)',
+                                            borderColor: 'rgba(220, 38, 38, 1)',
+                                            borderWidth: 1
+                                        },
+                                        {
+                                            label: 'OffHeapMap',
+                                            data: offHeapGc,
+                                            backgroundColor: 'rgba(5, 150, 105, 0.8)',
+                                            borderColor: 'rgba(5, 150, 105, 1)',
+                                            borderWidth: 1
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            title: {
+                                                display: true,
+                                                text: 'Allocation Rate (Bytes/op)'
+                                            }
+                                        }
                                     },
-                                    {
-                                        label: 'OffHeapMap',
-                                        data: offHeapGc,
-                                        backgroundColor: 'rgba(5, 150, 105, 0.8)', // Green to imply efficiency zero-alloc
-                                        borderColor: 'rgba(5, 150, 105, 1)',
-                                        borderWidth: 1
-                                    }
-                                ]
-                            },
-                            options: {
-                                responsive: true,
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
+                                    plugins: {
                                         title: {
                                             display: true,
-                                            text: 'Allocation Rate (Bytes/op)'
+                                            text: 'GC Allocation Rate (Lower is better)'
+                                        },
+                                        legend: {
+                                            position: 'top',
                                         }
                                     }
-                                },
-                                plugins: {
-                                    title: {
-                                        display: true,
-                                        text: 'GC Allocation Rate (Lower is better)'
-                                    },
-                                    legend: {
-                                        position: 'top',
-                                    }
                                 }
-                            }
-                        });
+                            }));
+                        }
+                        container.appendChild(wrapper);
                     }
-                    container.appendChild(wrapper);
+                }
+
+                // Setup size filter buttons
+                function renderSizeFilters() {
+                    const sizeFilterContainer = document.getElementById('sizeFilterContainer');
+                    const sizeFilterButtons = document.getElementById('sizeFilterButtons');
+                    sizeFilterContainer.classList.remove('hidden');
+                    sizeFilterButtons.innerHTML = '';
+                    
+                    sortedSizes.forEach(size => {
+                        const btn = document.createElement('button');
+                        btn.textContent = size;
+                        const isActive = activeSizes.has(size);
+                        btn.className = isActive
+                            ? 'px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white shadow-sm'
+                            : 'px-3 py-1.5 rounded-md text-sm font-medium bg-slate-200 text-slate-500 hover:bg-slate-300';
+                        btn.addEventListener('click', () => {
+                            if (activeSizes.has(size)) {
+                                if (activeSizes.size > 1) {
+                                    activeSizes.delete(size);
+                                }
+                            } else {
+                                activeSizes.add(size);
+                            }
+                            renderSizeFilters();
+                            renderCharts();
+                        });
+                        sizeFilterButtons.appendChild(btn);
+                    });
+                    
+                    // Add "All" button
+                    const allBtn = document.createElement('button');
+                    allBtn.textContent = 'All';
+                    const allActive = activeSizes.size === sortedSizes.length;
+                    allBtn.className = allActive
+                        ? 'px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white shadow-sm ml-2'
+                        : 'px-3 py-1.5 rounded-md text-sm font-medium bg-slate-200 text-slate-500 hover:bg-slate-300 ml-2';
+                    allBtn.addEventListener('click', () => {
+                        if (allActive) {
+                            // Deselect all except first
+                            activeSizes.clear();
+                            activeSizes.add(sortedSizes[0]);
+                        } else {
+                            sortedSizes.forEach(s => activeSizes.add(s));
+                        }
+                        renderSizeFilters();
+                        renderCharts();
+                    });
+                    sizeFilterButtons.appendChild(allBtn);
                 }
 
                 // Setup the tabs
@@ -290,7 +460,8 @@ dependencies {
                     tabsContainer.classList.remove('hidden');
 
                     const renderTabs = (activeClass) => {
-                        tabsNav.innerHTML = ''; // clear tabs
+                        activeClassName = activeClass;
+                        tabsNav.innerHTML = '';
                         classNames.forEach(className => {
                             const name = className.replace('Benchmark', '');
                             const isSelected = className === activeClass;
@@ -305,33 +476,21 @@ dependencies {
                             }
                             
                             btn.addEventListener('click', () => {
-                                // Update active tab styling
                                 renderTabs(className);
-                                // Show selected wrapper
-                                document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
-                                    if (wrapper.dataset.className === className) {
-                                        wrapper.style.display = 'block';
-                                    } else {
-                                        wrapper.style.display = 'none';
-                                    }
-                                });
+                                renderCharts();
                             });
                             
                             tabsNav.appendChild(btn);
                         });
                     };
 
-                    // Trigger initial selection mapping to String or first entry
                     const initClass = classNames.find(c => c.includes('String')) || classNames[0];
                     renderTabs(initClass);
-                    
-                    // Show the initially selected wrapper
-                    document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
-                        if (wrapper.dataset.className === initClass) {
-                            wrapper.style.display = 'block';
-                        }
-                    });
                 }
+
+                // Initial render
+                renderSizeFilters();
+                renderCharts();
 
             } catch (error) {
                 console.error("Failed to load benchmarks", error);

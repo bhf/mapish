@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Off-Heap? Understanding Java's Memory Model and the FFM API | Off-Heap Mapish</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <style>pre[class*="language-"],code[class*="language-"]{background:transparent;text-shadow:none}</style>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="text-lg font-bold tracking-tight hover:text-blue-300 transition">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
+                <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
+                <a href="why-off-heap.html" class="text-blue-300">Why Off-Heap?</a>
+                <a href="open-addressing-linear-probing.html" class="hover:text-blue-300 transition">Open Addressing</a>
+                <a href="zero-deserialization-lookups.html" class="hover:text-blue-300 transition">Zero-Deserialization</a>
+            </div>
+            <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hidden md:inline-block hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+        </div>
+    </nav>
+
+<article class="max-w-3xl mx-auto px-6 py-16 text-slate-800 leading-relaxed">
+
+    <!-- Title & Meta -->
+    <header class="mb-14">
+        <p class="text-sm font-semibold uppercase tracking-widest text-indigo-600 mb-3">Technical Deep Dive</p>
+        <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 mb-4">
+            Why Off-Heap? Understanding Java's Memory Model and the FFM&nbsp;API
+        </h1>
+        <p class="text-lg text-slate-500">
+            How the Mapish project stores millions of map entries with zero GC pressure&mdash;and why Java&rsquo;s Foreign Function &amp; Memory API makes it practical.
+        </p>
+        <div class="mt-6 flex items-center gap-3 text-sm text-slate-400">
+            <time datetime="2026-07-18">July 18, 2026</time>
+            <span>&middot;</span>
+            <span>12 min read</span>
+        </div>
+    </header>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 1. The GC Problem                              -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">1. The GC Problem</h2>
+
+        <p class="mb-4">
+            Java&rsquo;s garbage collector is one of the language&rsquo;s greatest strengths&mdash;until it isn&rsquo;t.
+            Modern collectors like G1, ZGC, and Shenandoah have pushed pause times impressively low,
+            but every one of them must still <em>find</em> live objects before it can reclaim dead ones.
+            The more live objects on the heap, the more work that scan requires.
+        </p>
+
+        <p class="mb-4">
+            Now picture a <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">HashMap&lt;String, String&gt;</code>
+            holding one million entries. How many Java objects does that create?
+        </p>
+
+        <ul class="list-disc list-inside mb-4 space-y-1 text-slate-700">
+            <li><strong>1&nbsp;M key</strong> <code class="bg-slate-100 px-1 rounded text-sm">String</code> objects (each wrapping a <code class="bg-slate-100 px-1 rounded text-sm">byte[]</code>)</li>
+            <li><strong>1&nbsp;M value</strong> <code class="bg-slate-100 px-1 rounded text-sm">String</code> objects (same story)</li>
+            <li><strong>1&nbsp;M</strong> <code class="bg-slate-100 px-1 rounded text-sm">HashMap.Node</code> wrapper objects</li>
+            <li><strong>~1&nbsp;M</strong> backing <code class="bg-slate-100 px-1 rounded text-sm">byte[]</code> arrays for the strings</li>
+            <li>The internal <code class="bg-slate-100 px-1 rounded text-sm">Node[]</code> table (plus tree nodes if chains get long)</li>
+        </ul>
+
+        <p class="mb-4">
+            That&rsquo;s easily <strong>4&nbsp;million+ live objects</strong>&mdash;all of which the GC must traverse on every collection cycle.
+            Even with concurrent collectors, tail latency grows. A G1 mixed-GC pause that normally takes 10&thinsp;ms might spike
+            to 50&ndash;200&thinsp;ms when your live set is measured in gigabytes. ZGC keeps pauses short, but its concurrent
+            mark phase still consumes CPU cycles proportional to the live object graph.
+        </p>
+
+        <p class="mb-6">
+            For latency-sensitive systems&mdash;high-frequency trading, real-time ad bidding, game servers&mdash;those
+            spikes are unacceptable. You can&rsquo;t serve a market order 80&thinsp;ms late, and you can&rsquo;t stutter a
+            multiplayer game loop because the GC decided now was a good time to clean house.
+        </p>
+
+        <div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mb-6">
+            <p class="text-sm text-amber-800">
+                <strong>Key insight:</strong> The problem isn&rsquo;t that GC is slow.
+                The problem is that GC cost scales with <em>live object count</em>,
+                and large in-memory data structures create an enormous live set by definition.
+            </p>
+        </div>
+
+        <p class="mb-4">Here&rsquo;s the familiar culprit:</p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// Innocent looking, but creates ~4M+ heap objects
+Map&lt;String, String&gt; cache = new HashMap&lt;&gt;(1_000_000);
+
+for (int i = 0; i &lt; 1_000_000; i++) {
+    cache.put("key-" + i, "value-" + i);
+}
+// Every one of those keys, values, and Node wrappers
+// is now a live object the GC must scan.</code></pre></div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 2. The Off-Heap Solution                       -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">2. The Off-Heap Solution</h2>
+
+        <p class="mb-4">
+            The idea is disarmingly simple: <strong>store your data outside the Java heap</strong>.
+            Native memory&mdash;allocated directly from the operating system&mdash;is invisible to the garbage collector.
+            It doesn&rsquo;t get scanned, doesn&rsquo;t get compacted, and doesn&rsquo;t contribute to pause times.
+        </p>
+
+        <p class="mb-4">
+            Think of native memory as a warehouse floor. The JVM heap is a managed storage unit&mdash;the
+            facility tracks every box, rearranges them periodically, and bills you for the service.
+            Off-heap memory is the raw warehouse floor next door: you get unlimited space,
+            but <em>you</em> decide where things go, and <em>you</em> are responsible for cleaning up.
+        </p>
+
+        <p class="mb-4">
+            This trade-off is the crux of off-heap design. You gain predictable latency and freedom
+            from GC pressure, but you accept responsibility for memory lifecycle management.
+            Forget to release a segment and you have a native memory leak&mdash;one that won&rsquo;t
+            show up in your heap dumps.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-6 mb-3">Historical approaches</h3>
+
+        <p class="mb-4">
+            Java developers have been reaching for off-heap memory for years,
+            but the available tools were crude:
+        </p>
+
+        <ul class="list-disc list-inside mb-4 space-y-2 text-slate-700">
+            <li>
+                <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">ByteBuffer.allocateDirect()</code> &mdash;
+                limited to 2&thinsp;GB (signed int addressing), no deterministic deallocation,
+                and the API was designed for I/O channels, not general-purpose storage.
+            </li>
+            <li>
+                <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">sun.misc.Unsafe</code> &mdash;
+                raw pointer arithmetic with zero safety net. No bounds checking. No lifecycle management.
+                A single off-by-one write can silently corrupt memory or crash the JVM with a segfault.
+                And it was never a supported API&mdash;every JDK release threatened to remove it.
+            </li>
+        </ul>
+
+        <p class="mb-4">
+            Both approaches worked, but they forced developers to choose between &ldquo;limited and awkward&rdquo;
+            or &ldquo;powerful and dangerous.&rdquo; The JDK needed a third option.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 3. Enter Java's FFM API                        -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">3. Enter Java&rsquo;s FFM API (JEP&nbsp;454)</h2>
+
+        <p class="mb-4">
+            The Foreign Function &amp; Memory API was finalized in Java&nbsp;22 after previewing since Java&nbsp;19.
+            It provides a <strong>safe, supported, performant</strong> API for working with native memory.
+            No <code class="bg-slate-100 px-1 rounded text-sm">--add-opens</code> hacks, no unsupported internals&mdash;just
+            a first-class JDK citizen.
+        </p>
+
+        <p class="mb-4">Three classes form the core of the API:</p>
+
+        <div class="space-y-4 mb-6">
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h4 class="font-bold text-indigo-700 mb-1">Arena</h4>
+                <p class="text-slate-600 text-sm">
+                    A lifecycle scope that owns one or more memory allocations. When the arena closes,
+                    all its segments are freed. Choose <code class="bg-slate-100 px-1 rounded text-sm">ofConfined()</code>
+                    for deterministic release, <code class="bg-slate-100 px-1 rounded text-sm">ofShared()</code> for
+                    multi-threaded access, or <code class="bg-slate-100 px-1 rounded text-sm">ofAuto()</code> to let the
+                    GC handle cleanup (useful for long-lived caches).
+                </p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h4 class="font-bold text-indigo-700 mb-1">MemorySegment</h4>
+                <p class="text-slate-600 text-sm">
+                    A contiguous region of native memory with <em>bounds checking</em>.
+                    Every read and write is validated against the segment&rsquo;s size.
+                    No silent buffer overflows, no segfaults&mdash;you get a clean
+                    <code class="bg-slate-100 px-1 rounded text-sm">IndexOutOfBoundsException</code> instead.
+                </p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h4 class="font-bold text-indigo-700 mb-1">ValueLayout</h4>
+                <p class="text-slate-600 text-sm">
+                    Typed access descriptors&mdash;<code class="bg-slate-100 px-1 rounded text-sm">JAVA_INT</code>,
+                    <code class="bg-slate-100 px-1 rounded text-sm">JAVA_LONG</code>,
+                    <code class="bg-slate-100 px-1 rounded text-sm">JAVA_BYTE</code>, and more.
+                    They tell the segment how to interpret the raw bytes at a given offset.
+                </p>
+            </div>
+        </div>
+
+        <p class="mb-4">Here&rsquo;s the API in action:</p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">try (Arena arena = Arena.ofConfined()) {
+    // Allocate 1 KB of native memory, owned by this arena
+    MemorySegment segment = arena.allocate(1024);
+
+    // Write an int at byte offset 0
+    segment.set(ValueLayout.JAVA_INT, 0, 42);
+
+    // Read it back
+    int value = segment.get(ValueLayout.JAVA_INT, 0); // 42
+
+} // Arena closes → segment is immediately freed</code></pre></div>
+
+        <p class="mt-4 text-slate-600 text-sm">
+            That <code class="bg-slate-100 px-1 rounded text-sm">try</code> block isn&rsquo;t decorative. When the arena
+            goes out of scope, the native memory is unmapped and returned to the OS immediately.
+            No finalizer delays, no phantom reference queues&mdash;deterministic deallocation.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 4. Why FFM is Better Than Unsafe               -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">4. Why FFM Beats <code class="text-2xl">Unsafe</code></h2>
+
+        <p class="mb-6">
+            If you&rsquo;ve worked with <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">sun.misc.Unsafe</code>,
+            FFM will feel familiar&mdash;but with guardrails.
+        </p>
+
+        <div class="overflow-x-auto mb-6">
+            <table class="w-full text-sm border-collapse">
+                <thead>
+                    <tr class="bg-slate-100">
+                        <th class="text-left p-3 font-semibold border-b border-slate-200"></th>
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">sun.misc.Unsafe</th>
+                        <th class="text-left p-3 font-semibold border-b border-slate-200">FFM API</th>
+                    </tr>
+                </thead>
+                <tbody class="text-slate-700">
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Bounds checking</td>
+                        <td class="p-3">None &mdash; segfault on overrun</td>
+                        <td class="p-3 text-green-700 font-medium">Automatic</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Lifecycle management</td>
+                        <td class="p-3">Manual <code class="bg-slate-100 px-1 rounded text-xs">freeMemory()</code></td>
+                        <td class="p-3 text-green-700 font-medium">Arena scoping</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">Supported API</td>
+                        <td class="p-3 text-red-600">Internal, may be removed</td>
+                        <td class="p-3 text-green-700 font-medium">Public, standardized</td>
+                    </tr>
+                    <tr class="border-b border-slate-100">
+                        <td class="p-3 font-medium">JVM flags required</td>
+                        <td class="p-3"><code class="bg-slate-100 px-1 rounded text-xs">--add-opens</code></td>
+                        <td class="p-3 text-green-700 font-medium">None</td>
+                    </tr>
+                    <tr>
+                        <td class="p-3 font-medium">Performance</td>
+                        <td class="p-3">Fast</td>
+                        <td class="p-3 font-medium">Comparable</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="mb-4">
+            The performance story deserves emphasis. Early preview builds of FFM had measurable overhead
+            from bounds checks, but the JIT compiler in modern JDK releases eliminates most of it.
+            In our JMH benchmarks, FFM-based reads and writes perform within noise of raw
+            <code class="bg-slate-100 px-1 rounded text-sm">Unsafe</code> operations&mdash;with the safety net included.
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 5. How Mapish Uses FFM                         -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">5. How Mapish Uses FFM</h2>
+
+        <p class="mb-4">
+            With the theory covered, let&rsquo;s look at how the
+            <a href="https://github.com/bhf/mapish" class="text-indigo-600 underline hover:text-indigo-800">Off-Heap Mapish</a>
+            project puts FFM to work. The design goal is simple:
+            implement <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">java.util.Map</code>
+            with <strong>zero GC-visible objects</strong> for the stored data.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">One giant segment</h3>
+
+        <p class="mb-4">
+            Instead of allocating an object per entry, Mapish allocates a
+            <strong>single contiguous <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment</code></strong>
+            sized to hold the entire hash table:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// From OffHeapMap.java — the entire table is one allocation
+this.memorySegment = arena.allocate((long) this.capacity * entrySize);</code></pre></div>
+
+        <p class="mt-4 mb-4">
+            That single call replaces what would be millions of
+            <code class="bg-slate-100 px-1 rounded text-sm">new Node&lt;&gt;()</code> allocations in a standard
+            <code class="bg-slate-100 px-1 rounded text-sm">HashMap</code>.
+        </p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Entry layout</h3>
+
+        <p class="mb-4">
+            Each entry occupies a fixed-size slot in the segment. The layout is calculated once at
+            construction time:
+        </p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-4 font-mono text-sm overflow-x-auto">
+            <div class="flex items-center gap-0">
+                <div class="bg-indigo-100 text-indigo-800 border border-indigo-300 px-3 py-2 rounded-l-lg text-center">
+                    <div class="font-bold">Status</div>
+                    <div class="text-xs">1 byte</div>
+                </div>
+                <div class="bg-slate-200 text-slate-600 border border-slate-300 px-3 py-2 text-center">
+                    <div class="font-bold">Pad</div>
+                    <div class="text-xs">3 bytes</div>
+                </div>
+                <div class="bg-amber-100 text-amber-800 border border-amber-300 px-3 py-2 text-center">
+                    <div class="font-bold">Hash</div>
+                    <div class="text-xs">4 bytes</div>
+                </div>
+                <div class="bg-green-100 text-green-800 border border-green-300 px-3 py-2 text-center">
+                    <div class="font-bold">Key bytes</div>
+                    <div class="text-xs">serialized</div>
+                </div>
+                <div class="bg-blue-100 text-blue-800 border border-blue-300 px-3 py-2 rounded-r-lg text-center">
+                    <div class="font-bold">Value bytes</div>
+                    <div class="text-xs">serialized</div>
+                </div>
+            </div>
+        </div>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// Status flags — stored as a single byte per slot
+private static final byte EMPTY   = 0;
+private static final byte FILLED  = 1;
+private static final byte DELETED = 2;
+
+// Offset calculations — computed once in the constructor
+this.hashOffset  = 4;                                  // after 1-byte status + 3-byte pad
+this.keyOffset   = 8;                                  // after the 4-byte hash
+this.valueOffset = this.keyOffset + align(keySize, 8); // key size, 8-byte aligned
+this.entrySize   = this.valueOffset + align(valueSize, 8);</code></pre></div>
+
+        <p class="mt-4 mb-4">
+            Reads and writes use <code class="bg-slate-100 px-1 rounded text-sm">ValueLayout</code> accessors
+            on the single segment, jumping to the correct offset with simple arithmetic:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">long offset = ((long) index) * entrySize;
+
+// Read the status byte
+byte status = memorySegment.get(ValueLayout.JAVA_BYTE, offset);
+
+// Read the cached hash (fast rejection on mismatch)
+int storedHash = memorySegment.get(ValueLayout.JAVA_INT, offset + hashOffset);
+
+// Serialize the key directly into the segment
+keySerializer.serialize(key, memorySegment, offset + keyOffset);</code></pre></div>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">The Serializer interface</h3>
+
+        <p class="mb-4">
+            Because the segment stores raw bytes, Mapish needs a way to convert Java objects to and from
+            binary. That&rsquo;s the job of the <code class="bg-slate-100 px-1 rounded text-sm">Serializer&lt;T&gt;</code>
+            interface:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">public interface Serializer&lt;T&gt; {
+    void serialize(T obj, MemorySegment segment, long offset);
+    T deserialize(MemorySegment segment, long offset);
+    long sizeBytes();
+
+    // Compare a Java object against raw bytes — no deserialization needed
+    boolean equals(T obj, MemorySegment segment, long offset);
+}</code></pre></div>
+
+        <p class="mt-4 mb-4">
+            That <code class="bg-slate-100 px-1 rounded text-sm">equals()</code> method is the performance secret sauce.
+            During a <code class="bg-slate-100 px-1 rounded text-sm">get()</code> or
+            <code class="bg-slate-100 px-1 rounded text-sm">containsKey()</code> call, the map probes through
+            slots comparing the search key against stored bytes <strong>without ever deserializing them</strong>.
+            The <code class="bg-slate-100 px-1 rounded text-sm">StringSerializer</code> takes this further by using
+            <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment.mismatch()</code>&mdash;a method that
+            maps down to hardware-accelerated vector comparison:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// From StringSerializer.java — zero-allocation equality check
+@Override
+public boolean equals(String obj, MemorySegment segment, long offset) {
+    int length = segment.get(ValueLayout.JAVA_INT, offset);
+    byte[] bytes = obj.getBytes(StandardCharsets.UTF_8);
+    if (length != bytes.length) return false;
+    if (length == 0) return true;
+
+    MemorySegment objSegment = MemorySegment.ofArray(bytes);
+    return MemorySegment.mismatch(
+        segment, offset + 4, offset + 4 + length,
+        objSegment, 0, length
+    ) == -1;
+}</code></pre></div>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Arena lifecycle</h3>
+
+        <p class="mb-4">
+            Mapish gives you a choice. The default constructor uses
+            <code class="bg-slate-100 px-1 rounded text-sm">Arena.ofAuto()</code>&mdash;the GC will eventually
+            reclaim the native memory when the map becomes unreachable. For strict deterministic release,
+            use the confined factory:
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// GC-managed — behaves like a normal Java object
+OffHeapMap&lt;String, String&gt; auto = new OffHeapMap&lt;&gt;(
+    new StringSerializer(100), new StringSerializer(100), 2_000_000
+);
+
+// Deterministic — memory freed on close()
+try (OffHeapMap&lt;String, String&gt; confined = OffHeapMap.createConfined(
+        new StringSerializer(100), new StringSerializer(100), 2_000_000)) {
+    confined.put("key", "value");
+    // ...
+} // Native memory immediately unmapped and returned to the OS</code></pre></div>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-8 mb-3">Open addressing, not separate chaining</h3>
+
+        <p class="mb-4">
+            Standard <code class="bg-slate-100 px-1 rounded text-sm">HashMap</code> resolves collisions with
+            linked lists (and tree nodes at high load). Each link is another heap object, another pointer
+            the GC must chase. Mapish uses <strong>open addressing with linear probing</strong>&mdash;colliding
+            entries simply slide into the next available slot in the same contiguous segment.
+            No extra allocations, and scanning adjacent memory slots is exactly what modern CPUs are
+            optimized for (cache-line prefetching).
+        </p>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- 6. The Payoff                                  -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-14">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">6. The Payoff</h2>
+
+        <p class="mb-4">
+            All of this engineering serves one outcome: <strong>predictable, low-latency map operations
+            regardless of data size.</strong>
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 rounded-xl p-6 text-center">
+                <p class="text-3xl font-extrabold text-indigo-700 mb-1">~0 B/op</p>
+                <p class="text-sm text-slate-600">GC allocation rate on lookups<br>(JMH gc profiler)</p>
+            </div>
+            <div class="bg-gradient-to-br from-green-50 to-white border border-green-100 rounded-xl p-6 text-center">
+                <p class="text-3xl font-extrabold text-green-700 mb-1">No pauses</p>
+                <p class="text-sm text-slate-600">Stored data is invisible<br>to the garbage collector</p>
+            </div>
+            <div class="bg-gradient-to-br from-amber-50 to-white border border-amber-100 rounded-xl p-6 text-center">
+                <p class="text-3xl font-extrabold text-amber-700 mb-1">Full Map API</p>
+                <p class="text-sm text-slate-600">Implements <code class="text-xs">java.util.Map</code><br>
+                verified by Guava testlib</p>
+            </div>
+        </div>
+
+        <p class="mb-4">
+            Because the entire hash table lives in a single
+            <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment</code>, a Mapish instance holding
+            two million entries contributes <strong>exactly one object</strong> to the GC&rsquo;s live set
+            (the <code class="bg-slate-100 px-1 rounded text-sm">OffHeapMap</code> instance itself).
+            Compare that to the 4&ndash;8 million objects a standard
+            <code class="bg-slate-100 px-1 rounded text-sm">HashMap</code> would create.
+        </p>
+
+        <p class="mb-4">
+            The best part? You don&rsquo;t need to learn a new API. Mapish implements the full
+            <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">java.util.Map</code> contract&mdash;
+            <code class="bg-slate-100 px-1 rounded text-sm">put()</code>,
+            <code class="bg-slate-100 px-1 rounded text-sm">get()</code>,
+            <code class="bg-slate-100 px-1 rounded text-sm">entrySet()</code>,
+            <code class="bg-slate-100 px-1 rounded text-sm">remove()</code>, iterators, all of it.
+            Drop it into existing code, swap your serializers in, and the GC pressure vanishes.
+        </p>
+
+<div class="bg-gray-800 p-6 rounded-xl font-mono text-sm overflow-x-auto"><pre class="language-java"><code class="language-java">// Swap in, enjoy the silence from the GC
+Map&lt;String, String&gt; map = new OffHeapMap&lt;&gt;(
+    new StringSerializer(100),
+    new StringSerializer(100),
+    2_000_000
+);
+
+map.put("ticker", "AAPL");
+String value = map.get("ticker"); // "AAPL" — zero GC overhead
+
+for (Map.Entry&lt;String, String&gt; entry : map.entrySet()) {
+    // Standard iteration — works exactly as you'd expect
+}</code></pre></div>
+    </section>
+
+    <!-- ───────────────────────────────────────────── -->
+    <!-- Closing                                        -->
+    <!-- ───────────────────────────────────────────── -->
+    <section class="mb-10">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4">Where to Go from Here</h2>
+
+        <p class="mb-4">
+            If your application keeps large reference data in memory&mdash;caches, lookup tables,
+            session stores&mdash;and you&rsquo;re fighting GC pauses, off-heap storage with the FFM API
+            is worth exploring. The API is stable, the performance is proven, and projects like Mapish
+            show that you don&rsquo;t have to sacrifice developer ergonomics to get there.
+        </p>
+
+        <ul class="list-disc list-inside space-y-2 text-slate-700 mb-6">
+            <li>
+                <a href="https://github.com/bhf/mapish" class="text-indigo-600 underline hover:text-indigo-800">
+                    Browse the Mapish source on GitHub
+                </a>
+            </li>
+            <li>
+                <a href="https://openjdk.org/jeps/454" class="text-indigo-600 underline hover:text-indigo-800">
+                    Read JEP 454 — Foreign Function &amp; Memory API
+                </a>
+            </li>
+            <li>
+                <a href="index.html" class="text-indigo-600 underline hover:text-indigo-800">
+                    View the JMH benchmark results
+                </a>
+            </li>
+        </ul>
+
+        <div class="bg-slate-100 border border-slate-200 rounded-xl p-6 text-sm text-slate-600">
+            <p>
+                <strong>Mapish</strong> is an open-source, zero-dependency off-heap hash map for Java 22+.
+                It fully implements <code class="bg-white px-1 rounded text-xs">java.util.Map</code>,
+                ships built-in serializers for all primitive wrapper types and
+                <code class="bg-white px-1 rounded text-xs">String</code>,
+                and is verified against hundreds of contract tests via Google&rsquo;s
+                <code class="bg-white px-1 rounded text-xs">guava-testlib</code>.
+            </p>
+        </div>
+    </section>
+
+</article>
+
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    </footer>
+
+</body>
+</html>

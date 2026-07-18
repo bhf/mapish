@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Getting Started | Off-Heap Mapish</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <style>pre[class*="language-"],code[class*="language-"]{background:transparent;text-shadow:none}</style>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-kotlin.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="text-lg font-bold tracking-tight hover:text-blue-300 transition">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="text-blue-300">Getting Started</a>
+                <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
+                <a href="why-off-heap.html" class="hover:text-blue-300 transition">Why Off-Heap?</a>
+                <a href="open-addressing-linear-probing.html" class="hover:text-blue-300 transition">Open Addressing</a>
+                <a href="zero-deserialization-lookups.html" class="hover:text-blue-300 transition">Zero-Deserialization</a>
+            </div>
+            <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hidden md:inline-block hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+        </div>
+    </nav>
+
+<section class="py-16 px-6">
+  <article class="prose prose-slate prose-lg max-w-4xl mx-auto">
+
+    <!-- Title -->
+    <div class="text-center mb-16">
+      <h1 class="text-5xl font-extrabold tracking-tight text-slate-900 mb-4">Getting Started with Off-Heap Mapish</h1>
+      <p class="text-xl text-slate-500 max-w-2xl mx-auto">
+        Learn how to use a high-performance, single-threaded, off-heap hash map built on Java's Foreign Function &amp; Memory API.
+      </p>
+    </div>
+
+    <!-- Table of Contents -->
+    <nav class="bg-slate-100 rounded-xl p-6 mb-12 not-prose">
+      <h2 class="text-lg font-bold text-slate-700 mb-3">In This Guide</h2>
+      <ol class="list-decimal list-inside space-y-1 text-blue-700">
+        <li><a href="#prerequisites" class="hover:underline">Prerequisites</a></li>
+        <li><a href="#installation" class="hover:underline">Installation</a></li>
+        <li><a href="#basic-usage" class="hover:underline">Basic Usage — Creating and Using an OffHeapMap</a></li>
+        <li><a href="#serializers" class="hover:underline">Using Different Serializers</a></li>
+        <li><a href="#memory-lifecycle" class="hover:underline">Memory Lifecycle — Auto vs Confined</a></li>
+        <li><a href="#map-contract" class="hover:underline">Full java.util.Map Contract</a></li>
+        <li><a href="#custom-serializer" class="hover:underline">Writing a Custom Serializer</a></li>
+        <li><a href="#performance-tips" class="hover:underline">Performance Tips</a></li>
+      </ol>
+    </nav>
+
+    <!-- 1. Prerequisites -->
+    <section id="prerequisites" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">1. Prerequisites</h2>
+      <p>Before you begin, make sure you have the following installed:</p>
+      <ul class="space-y-3 mt-4">
+        <li>
+          <strong>Java 21 or later</strong> — Off-Heap Mapish uses the
+          <a href="https://docs.oracle.com/en/java/javase/21/core/foreign-function-and-memory-api.html" class="text-blue-600 hover:underline">Foreign Function &amp; Memory (FFM) API</a>,
+          which became a preview feature in Java 19 and was finalized in Java 22. Java 21+ is the minimum supported version.
+        </li>
+        <li>
+          <strong>Gradle</strong> — The library is distributed via GitHub Packages and uses Gradle for dependency management. Any recent version of Gradle with Kotlin DSL support will work.
+        </li>
+      </ul>
+      <p class="mt-4">You can verify your Java version by running:</p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-bash"><code class="language-bash">java --version
+# Expected: openjdk 21.0.x or later</code></pre>
+      </div>
+    </section>
+
+    <!-- 2. Installation -->
+    <section id="installation" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">2. Installation</h2>
+      <p>
+        Off-Heap Mapish is published to <strong>GitHub Packages</strong>. Add the repository and dependency to your
+        <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">build.gradle.kts</code>:
+      </p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-kotlin"><code class="language-kotlin">repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/bhf/mapish")
+        credentials {
+            username = System.getenv("GITHUB_ACTOR")
+            password = System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+
+dependencies {
+    implementation("com.bhf.mapish:off-heap-map:1.0-SNAPSHOT")
+}</code></pre>
+      </div>
+      <div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg mt-6 not-prose">
+        <p class="text-sm text-amber-800">
+          <strong>Note:</strong> You need a GitHub Personal Access Token (PAT) with the
+          <code class="bg-amber-100 px-1 rounded text-xs">read:packages</code> scope.
+          Set the <code class="bg-amber-100 px-1 rounded text-xs">GITHUB_ACTOR</code> and
+          <code class="bg-amber-100 px-1 rounded text-xs">GITHUB_TOKEN</code> environment variables
+          before running Gradle.
+        </p>
+      </div>
+    </section>
+
+    <!-- 3. Basic Usage -->
+    <section id="basic-usage" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">3. Basic Usage</h2>
+      <p>
+        Creating an <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">OffHeapMap</code> is straightforward.
+        You provide a <em>key serializer</em>, a <em>value serializer</em>, and an <em>initial capacity</em>:
+      </p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-java"><code class="language-java">import com.bhf.mapish.OffHeapMap;
+import com.bhf.mapish.serializers.StringSerializer;
+
+// Create an off-heap map of String → String
+OffHeapMap&lt;String, String&gt; map = new OffHeapMap&lt;&gt;(
+    new StringSerializer(100),  // key serializer (max 100 bytes per key)
+    new StringSerializer(100),  // value serializer (max 100 bytes per value)
+    2_000_000                   // initial capacity (number of entries)
+);
+
+map.put("hello", "world");
+String val = map.get("hello"); // returns "world"
+
+System.out.println(map.size()); // 1</code></pre>
+      </div>
+
+      <h3 class="text-xl font-semibold text-slate-800 mt-8 mb-3">Constructor Parameters</h3>
+      <div class="overflow-x-auto not-prose">
+        <table class="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+          <thead class="bg-slate-100">
+            <tr>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Parameter</th>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Type</th>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Description</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            <tr>
+              <td class="px-4 py-3 font-mono text-blue-700">keySerializer</td>
+              <td class="px-4 py-3"><code class="bg-slate-100 px-1 rounded">Serializer&lt;K&gt;</code></td>
+              <td class="px-4 py-3 text-slate-600">Defines how keys are written to and read from native memory.</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-3 font-mono text-blue-700">valueSerializer</td>
+              <td class="px-4 py-3"><code class="bg-slate-100 px-1 rounded">Serializer&lt;V&gt;</code></td>
+              <td class="px-4 py-3 text-slate-600">Defines how values are written to and read from native memory.</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-3 font-mono text-blue-700">capacity</td>
+              <td class="px-4 py-3"><code class="bg-slate-100 px-1 rounded">int</code></td>
+              <td class="px-4 py-3 text-slate-600">Initial number of slots. Rounded up to the nearest power of 2. The map resizes when 50% full.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. Serializers -->
+    <section id="serializers" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">4. Using Different Serializers</h2>
+      <p>
+        Off-Heap Mapish ships with built-in serializers for all common Java types in the
+        <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">com.bhf.mapish.serializers</code> package:
+      </p>
+
+      <div class="overflow-x-auto mt-6 not-prose">
+        <table class="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+          <thead class="bg-slate-100">
+            <tr>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Serializer</th>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Java Type</th>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Size (bytes)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            <tr><td class="px-4 py-3 font-mono">IntegerSerializer</td><td class="px-4 py-3">Integer</td><td class="px-4 py-3">4</td></tr>
+            <tr><td class="px-4 py-3 font-mono">LongSerializer</td><td class="px-4 py-3">Long</td><td class="px-4 py-3">8</td></tr>
+            <tr><td class="px-4 py-3 font-mono">DoubleSerializer</td><td class="px-4 py-3">Double</td><td class="px-4 py-3">8</td></tr>
+            <tr><td class="px-4 py-3 font-mono">FloatSerializer</td><td class="px-4 py-3">Float</td><td class="px-4 py-3">4</td></tr>
+            <tr><td class="px-4 py-3 font-mono">ShortSerializer</td><td class="px-4 py-3">Short</td><td class="px-4 py-3">2</td></tr>
+            <tr><td class="px-4 py-3 font-mono">ByteSerializer</td><td class="px-4 py-3">Byte</td><td class="px-4 py-3">1</td></tr>
+            <tr><td class="px-4 py-3 font-mono">BooleanSerializer</td><td class="px-4 py-3">Boolean</td><td class="px-4 py-3">1</td></tr>
+            <tr><td class="px-4 py-3 font-mono">CharacterSerializer</td><td class="px-4 py-3">Character</td><td class="px-4 py-3">2</td></tr>
+            <tr>
+              <td class="px-4 py-3 font-mono">StringSerializer(maxBytes)</td>
+              <td class="px-4 py-3">String</td>
+              <td class="px-4 py-3">4 + maxBytes</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="mt-6">Mix and match serializers for any key-value combination:</p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-java"><code class="language-java">// Integer keys → Double values
+OffHeapMap&lt;Integer, Double&gt; scores = new OffHeapMap&lt;&gt;(
+    new IntegerSerializer(),
+    new DoubleSerializer(),
+    10_000
+);
+
+scores.put(42, 99.5);
+scores.put(7, 88.3);
+
+// Long keys → String values
+OffHeapMap&lt;Long, String&gt; userNames = new OffHeapMap&lt;&gt;(
+    new LongSerializer(),
+    new StringSerializer(50),
+    100_000
+);
+
+userNames.put(1001L, "Alice");
+userNames.put(1002L, "Bob");</code></pre>
+      </div>
+    </section>
+
+    <!-- 5. Memory Lifecycle -->
+    <section id="memory-lifecycle" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">5. Memory Lifecycle — Auto vs Confined</h2>
+      <p>
+        Because <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">OffHeapMap</code> stores data in native memory
+        (outside the Java heap), you need to think about <em>when</em> that memory gets released. The library offers
+        two modes:
+      </p>
+
+      <!-- Auto -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-6 mt-8">
+        <h3 class="text-xl font-bold text-blue-900 mb-2">Auto Mode <span class="text-sm font-normal text-blue-600">(default)</span></h3>
+        <p class="text-blue-800 mb-4">
+          Uses <code class="bg-blue-100 px-1 rounded text-sm">Arena.ofAuto()</code> under the hood. The Java garbage collector
+          reclaims the native memory when the map becomes unreachable — just like any other Java object.
+        </p>
+        <div class="bg-gray-800 text-gray-100 p-6 rounded-xl font-mono text-sm overflow-x-auto not-prose">
+<pre class="language-java"><code class="language-java">OffHeapMap&lt;String, String&gt; map = new OffHeapMap&lt;&gt;(
+    new StringSerializer(100),
+    new StringSerializer(100),
+    2_000_000
+);
+
+map.put("key", "value");
+// No explicit closing needed.
+// Native memory freed when the GC collects the map.</code></pre>
+        </div>
+      </div>
+
+      <!-- Confined -->
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-6 mt-6">
+        <h3 class="text-xl font-bold text-emerald-900 mb-2">Confined Mode <span class="text-sm font-normal text-emerald-600">(deterministic)</span></h3>
+        <p class="text-emerald-800 mb-4">
+          Uses <code class="bg-emerald-100 px-1 rounded text-sm">Arena.ofConfined()</code> and implements
+          <code class="bg-emerald-100 px-1 rounded text-sm">AutoCloseable</code>. Native memory is released
+          <strong>immediately</strong> when the map is closed. Any access after closing throws an
+          <code class="bg-emerald-100 px-1 rounded text-sm">IllegalStateException</code>.
+        </p>
+        <div class="bg-gray-800 text-gray-100 p-6 rounded-xl font-mono text-sm overflow-x-auto not-prose">
+<pre class="language-java"><code class="language-java">try (OffHeapMap&lt;String, String&gt; map = OffHeapMap.createConfined(
+        new StringSerializer(100),
+        new StringSerializer(100),
+        2_000_000)) {
+
+    map.put("key", "value");
+    String val = map.get("key");
+
+} // Native memory is immediately unmapped and released here</code></pre>
+        </div>
+      </div>
+
+      <h3 class="text-xl font-semibold text-slate-800 mt-8 mb-3">When to Use Which?</h3>
+      <div class="overflow-x-auto not-prose">
+        <table class="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+          <thead class="bg-slate-100">
+            <tr>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Scenario</th>
+              <th class="text-left px-4 py-3 font-semibold text-slate-700">Recommended Mode</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            <tr>
+              <td class="px-4 py-3 text-slate-600">Long-lived map in a service or cache</td>
+              <td class="px-4 py-3 font-semibold text-blue-700">Auto</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-3 text-slate-600">Quick convenience, prototyping</td>
+              <td class="px-4 py-3 font-semibold text-blue-700">Auto</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-3 text-slate-600">Large, short-lived map (batch job, import)</td>
+              <td class="px-4 py-3 font-semibold text-emerald-700">Confined</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-3 text-slate-600">Deterministic memory control is required</td>
+              <td class="px-4 py-3 font-semibold text-emerald-700">Confined</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-3 text-slate-600">Risk of native memory exhaustion before GC runs</td>
+              <td class="px-4 py-3 font-semibold text-emerald-700">Confined</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 6. Full Map Contract -->
+    <section id="map-contract" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">6. Full java.util.Map Contract</h2>
+      <p>
+        <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">OffHeapMap</code> fully implements
+        <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">java.util.Map&lt;K, V&gt;</code>.
+        Everything you expect from a standard Java map works here — iteration, views, bulk operations, and more:
+      </p>
+      <ul class="mt-4 space-y-1">
+        <li><code class="bg-slate-100 px-1 rounded text-sm">put()</code>, <code class="bg-slate-100 px-1 rounded text-sm">get()</code>, <code class="bg-slate-100 px-1 rounded text-sm">remove()</code>, <code class="bg-slate-100 px-1 rounded text-sm">containsKey()</code></li>
+        <li><code class="bg-slate-100 px-1 rounded text-sm">entrySet()</code>, <code class="bg-slate-100 px-1 rounded text-sm">keySet()</code>, <code class="bg-slate-100 px-1 rounded text-sm">values()</code></li>
+        <li><code class="bg-slate-100 px-1 rounded text-sm">clear()</code>, <code class="bg-slate-100 px-1 rounded text-sm">size()</code>, <code class="bg-slate-100 px-1 rounded text-sm">isEmpty()</code></li>
+        <li><code class="bg-slate-100 px-1 rounded text-sm">putAll()</code>, <code class="bg-slate-100 px-1 rounded text-sm">containsValue()</code></li>
+        <li>Enhanced for-each loops and Stream API via <code class="bg-slate-100 px-1 rounded text-sm">entrySet()</code></li>
+      </ul>
+
+      <p class="mt-6">Here's a complete iteration example:</p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-java"><code class="language-java">OffHeapMap&lt;String, Integer&gt; wordCounts = new OffHeapMap&lt;&gt;(
+    new StringSerializer(50),
+    new IntegerSerializer(),
+    1_000
+);
+
+wordCounts.put("hello", 5);
+wordCounts.put("world", 3);
+wordCounts.put("java", 42);
+
+// Iterate with entrySet()
+for (Map.Entry&lt;String, Integer&gt; entry : wordCounts.entrySet()) {
+    System.out.println(entry.getKey() + " = " + entry.getValue());
+}
+
+// Use keySet()
+for (String key : wordCounts.keySet()) {
+    System.out.println(key + ": " + wordCounts.get(key));
+}
+
+// Stream API
+wordCounts.entrySet().stream()
+    .filter(e -&gt; e.getValue() &gt; 4)
+    .forEach(e -&gt; System.out.println(e.getKey()));</code></pre>
+      </div>
+    </section>
+
+    <!-- 7. Custom Serializer -->
+    <section id="custom-serializer" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">7. Writing a Custom Serializer</h2>
+      <p>
+        Need to store your own domain types off-heap? Implement the
+        <code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm">Serializer&lt;T&gt;</code> interface.
+        It has four methods:
+      </p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-java"><code class="language-java">public interface Serializer&lt;T&gt; {
+    /** Write the object into the memory segment at the given offset. */
+    void serialize(T obj, MemorySegment segment, long offset);
+
+    /** Read an object back from the memory segment at the given offset. */
+    T deserialize(MemorySegment segment, long offset);
+
+    /** The fixed size in bytes this type occupies in native memory. */
+    long sizeBytes();
+
+    /** Compare an object against the raw bytes without deserializing. */
+    boolean equals(T obj, MemorySegment segment, long offset);
+}</code></pre>
+      </div>
+
+      <p class="mt-6">
+        Here's a concrete example — a serializer for a <code class="bg-slate-100 px-1 rounded text-sm">Point</code>
+        record with <code class="bg-slate-100 px-1 rounded text-sm">x</code> and
+        <code class="bg-slate-100 px-1 rounded text-sm">y</code> integer coordinates:
+      </p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-java"><code class="language-java">import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
+public record Point(int x, int y) {}
+
+public class PointSerializer implements Serializer&lt;Point&gt; {
+
+    // Layout: [4 bytes x] [4 bytes y] = 8 bytes total
+
+    @Override
+    public void serialize(Point p, MemorySegment segment, long offset) {
+        segment.set(ValueLayout.JAVA_INT, offset, p.x());
+        segment.set(ValueLayout.JAVA_INT, offset + 4, p.y());
+    }
+
+    @Override
+    public Point deserialize(MemorySegment segment, long offset) {
+        int x = segment.get(ValueLayout.JAVA_INT, offset);
+        int y = segment.get(ValueLayout.JAVA_INT, offset + 4);
+        return new Point(x, y);
+    }
+
+    @Override
+    public long sizeBytes() {
+        return 8; // 4 bytes for x + 4 bytes for y
+    }
+
+    @Override
+    public boolean equals(Point p, MemorySegment segment, long offset) {
+        if (p == null) return false;
+        return p.x() == segment.get(ValueLayout.JAVA_INT, offset)
+            &amp;&amp; p.y() == segment.get(ValueLayout.JAVA_INT, offset + 4);
+    }
+}</code></pre>
+      </div>
+
+      <p class="mt-6">Now use it like any other serializer:</p>
+      <div class="bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg font-mono text-sm overflow-x-auto mt-4 not-prose">
+<pre class="language-java"><code class="language-java">OffHeapMap&lt;Point, String&gt; labels = new OffHeapMap&lt;&gt;(
+    new PointSerializer(),
+    new StringSerializer(64),
+    5_000
+);
+
+labels.put(new Point(10, 20), "Origin");
+labels.put(new Point(30, 40), "Destination");
+
+System.out.println(labels.get(new Point(10, 20))); // "Origin"</code></pre>
+      </div>
+
+      <div class="bg-sky-50 border-l-4 border-sky-400 p-4 rounded-r-lg mt-6 not-prose">
+        <p class="text-sm text-sky-800">
+          <strong>Tip:</strong> The <code class="bg-sky-100 px-1 rounded text-xs">equals()</code> method is a performance
+          hot path. It's called during every <code class="bg-sky-100 px-1 rounded text-xs">get()</code>,
+          <code class="bg-sky-100 px-1 rounded text-xs">put()</code>, and
+          <code class="bg-sky-100 px-1 rounded text-xs">remove()</code> operation. Compare raw memory values directly
+          instead of deserializing first — that's what makes off-heap lookups fast.
+        </p>
+      </div>
+    </section>
+
+    <!-- 8. Performance Tips -->
+    <section id="performance-tips" class="mb-16">
+      <h2 class="text-3xl font-bold text-slate-900 border-b border-slate-200 pb-3 mb-6">8. Performance Tips</h2>
+      <p>
+        Off-Heap Mapish is designed for high throughput with minimal GC pressure. Here are some guidelines
+        to get the best performance out of it:
+      </p>
+
+      <div class="space-y-6 mt-8 not-prose">
+
+        <div class="flex gap-4 items-start">
+          <div class="flex-shrink-0 w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm">1</div>
+          <div>
+            <h3 class="font-semibold text-slate-800 mb-1">Pre-size your map</h3>
+            <p class="text-slate-600 text-sm">
+              Resizing requires allocating a new contiguous memory segment and rehashing every entry. If you know
+              (or can estimate) the number of entries, pass that as the <code class="bg-slate-100 px-1 rounded">capacity</code>
+              parameter. The internal capacity is rounded up to the nearest power of 2, and the map resizes at a
+              0.5 load factor — so a capacity of 2,000,000 holds up to 1,000,000 entries before resizing.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 items-start">
+          <div class="flex-shrink-0 w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm">2</div>
+          <div>
+            <h3 class="font-semibold text-slate-800 mb-1">Use Confined arenas for large, short-lived maps</h3>
+            <p class="text-slate-600 text-sm">
+              If you're allocating millions of entries in a batch job or import pipeline, use
+              <code class="bg-slate-100 px-1 rounded">OffHeapMap.createConfined()</code> inside a try-with-resources.
+              This releases native memory immediately rather than waiting for an unpredictable GC cycle.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 items-start">
+          <div class="flex-shrink-0 w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm">3</div>
+          <div>
+            <h3 class="font-semibold text-slate-800 mb-1">Keep StringSerializer maxBytes as small as possible</h3>
+            <p class="text-slate-600 text-sm">
+              Every entry in the map reserves a fixed-size slot based on <code class="bg-slate-100 px-1 rounded">sizeBytes()</code>.
+              For <code class="bg-slate-100 px-1 rounded">StringSerializer</code>, that's
+              <code class="bg-slate-100 px-1 rounded">maxBytes + 4</code> per key or value. Setting
+              <code class="bg-slate-100 px-1 rounded">maxBytes</code> to 1000 when your strings are only 20 bytes
+              wastes ~980 bytes per entry. Multiply that by millions of entries and the overhead becomes significant.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 items-start">
+          <div class="flex-shrink-0 w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm">4</div>
+          <div>
+            <h3 class="font-semibold text-slate-800 mb-1">Null keys and values are not supported</h3>
+            <p class="text-slate-600 text-sm">
+              Calling <code class="bg-slate-100 px-1 rounded">put(null, value)</code> or
+              <code class="bg-slate-100 px-1 rounded">put(key, null)</code> throws a
+              <code class="bg-slate-100 px-1 rounded">NullPointerException</code>. If you need to represent absence,
+              use a sentinel value in your domain.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 items-start">
+          <div class="flex-shrink-0 w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm">5</div>
+          <div>
+            <h3 class="font-semibold text-slate-800 mb-1">Implement fast equals() in custom serializers</h3>
+            <p class="text-slate-600 text-sm">
+              The <code class="bg-slate-100 px-1 rounded">equals(T obj, MemorySegment, long)</code> method is called
+              on every probe during linear collision resolution. Comparing raw bytes (or primitive fields directly)
+              instead of deserializing into a Java object can dramatically reduce allocation pressure and latency.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Next Steps -->
+    <section class="mb-8">
+      <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-8 text-center">
+        <h2 class="text-2xl font-bold text-indigo-900 mb-3">Ready to go deeper?</h2>
+        <p class="text-indigo-700 mb-6">
+          Explore how Mapish works under the hood, compare it against other off-heap libraries, or view the benchmarks.
+        </p>
+        <div class="flex justify-center gap-4 flex-wrap">
+          <a href="why-off-heap.html" class="bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold shadow hover:bg-indigo-800 transition">Why Off-Heap?</a>
+          <a href="comparison.html" class="border-2 border-indigo-700 text-indigo-700 px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 hover:text-white transition">Mapish vs Oak vs MapDB</a>
+          <a href="index.html#benchmarks" class="border-2 border-indigo-700 text-indigo-700 px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 hover:text-white transition">View Benchmarks</a>
+        </div>
+      </div>
+    </section>
+
+  </article>
+</section>
+
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    </footer>
+
+</body>
+</html>
