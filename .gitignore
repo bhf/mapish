@@ -44,3 +44,7 @@ desktop.ini
 
 # JMH
 jmh-result.json
+.github/agents
+.github/instructions
+.github/prompts
+.github/skills
