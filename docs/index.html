@@ -24,7 +24,7 @@
                 <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
                 <a href="benchmarks.html" class="hover:text-blue-300 transition">Benchmarks</a>
                 <div class="relative group">
-                    <button class="hover:text-blue-300 transition flex items-center gap-1">Deep Dives <svg class="w-3 h-3 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></button>
+                    <a href="deep-dives.html" class="hover:text-blue-300 transition flex items-center gap-1">Deep Dives <svg class="w-3 h-3 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></a>
                     <div class="absolute top-full left-0 mt-1 w-52 bg-slate-800 rounded-lg shadow-lg py-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
                         <a href="why-off-heap.html" class="block px-4 py-2 text-sm hover:bg-slate-700 hover:text-blue-300 transition">Why Off-Heap?</a>
                         <a href="open-addressing-linear-probing.html" class="block px-4 py-2 text-sm hover:bg-slate-700 hover:text-blue-300 transition">Open Addressing</a>
@@ -137,34 +137,6 @@ map.get("stay"); // "tuned"</code></pre></div>
                 Add Mapish to your Gradle project, choose a serializer, and start putting data off-heap. Full <code class="bg-white/60 px-1 rounded text-sm">java.util.Map</code> API — no new interface to learn.
             </p>
             <a href="getting-started.html" class="bg-indigo-700 text-white px-8 py-3 rounded-lg font-bold shadow hover:bg-indigo-800 transition">Read the Tutorial →</a>
-        </div>
-    </section>
-
-    <!-- Technical Deep Dives -->
-    <section class="py-16 px-6">
-        <div class="max-w-5xl mx-auto">
-            <h2 class="text-3xl font-bold text-center mb-4">Under the Hood</h2>
-            <p class="text-slate-600 text-center mb-12 max-w-2xl mx-auto">Deep-dive technical posts explaining the design decisions and performance techniques behind Mapish.</p>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <a href="why-off-heap.html" class="group block bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition">
-                    <p class="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">Deep Dive</p>
-                    <h3 class="text-lg font-bold text-slate-900 group-hover:text-indigo-700 transition mb-3">Why Off-Heap? Java's Memory Model &amp; the FFM API</h3>
-                    <p class="text-sm text-slate-500">How GC pressure scales with live object count, and how the FFM API lets you escape it entirely.</p>
-                    <p class="text-indigo-600 text-sm font-medium mt-4">Read post →</p>
-                </a>
-                <a href="open-addressing-linear-probing.html" class="group block bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition">
-                    <p class="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">Deep Dive</p>
-                    <h3 class="text-lg font-bold text-slate-900 group-hover:text-indigo-700 transition mb-3">Open Addressing &amp; Linear Probing</h3>
-                    <p class="text-sm text-slate-500">Why contiguous memory and linear probing turn CPU caches into an ally — and how it beats HashMap's separate chaining.</p>
-                    <p class="text-indigo-600 text-sm font-medium mt-4">Read post →</p>
-                </a>
-                <a href="zero-deserialization-lookups.html" class="group block bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition">
-                    <p class="text-xs font-semibold uppercase tracking-widest text-indigo-600 mb-2">Deep Dive</p>
-                    <h3 class="text-lg font-bold text-slate-900 group-hover:text-indigo-700 transition mb-3">Zero-Deserialization Lookups</h3>
-                    <p class="text-sm text-slate-500">The <code class="text-xs">MemorySegment.mismatch()</code> trick — SIMD-accelerated binary comparison that eliminates heap allocation during lookups.</p>
-                    <p class="text-indigo-600 text-sm font-medium mt-4">Read post →</p>
-                </a>
-            </div>
         </div>
     </section>
 
