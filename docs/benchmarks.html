@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="https://sanjeev.pages.dev/img/logo2.png">
+    <title>JMH Benchmarks | Off-Heap Mapish</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-200">
+
+    <!-- Navigation -->
+    <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <a href="index.html" class="flex items-center gap-2 text-lg font-bold tracking-tight hover:text-blue-300 transition"><img src="https://sanjeev.pages.dev/img/logo2.png" alt="Logo" class="h-6 w-6">Off-Heap Mapish</a>
+            <div class="hidden md:flex gap-6 text-sm font-medium">
+                <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
+                <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
+                <a href="benchmarks.html" class="text-blue-300">Benchmarks</a>
+                <div class="relative group">
+                    <button class="hover:text-blue-300 transition flex items-center gap-1">Deep Dives <svg class="w-3 h-3 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></button>
+                    <div class="absolute top-full left-0 mt-1 w-52 bg-slate-800 rounded-lg shadow-lg py-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                        <a href="why-off-heap.html" class="block px-4 py-2 text-sm hover:bg-slate-700 hover:text-blue-300 transition">Why Off-Heap?</a>
+                        <a href="open-addressing-linear-probing.html" class="block px-4 py-2 text-sm hover:bg-slate-700 hover:text-blue-300 transition">Open Addressing</a>
+                        <a href="zero-deserialization-lookups.html" class="block px-4 py-2 text-sm hover:bg-slate-700 hover:text-blue-300 transition">Zero-Deserialization</a>
+                    </div>
+                </div>
+            </div>
+            <div class="hidden md:flex gap-6">
+                <a href="https://github.com/bhf/mapish" target="_blank" rel="noopener noreferrer" class="hover:text-blue-300 transition text-sm font-medium">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Benchmarks Section -->
+    <section id="benchmarks" class="bg-white py-16 px-6">
+        <div class="max-w-5xl mx-auto">
+            <div class="text-center mb-12">
+                <h1 class="text-4xl font-extrabold tracking-tight mb-4">JMH Benchmarks</h1>
+                <p class="text-lg text-slate-600">Comparing Yahoo's <code class="text-sm bg-slate-100 px-1 rounded">OakMap</code> vs <code class="text-sm bg-slate-100 px-1 rounded">OffHeapMap</code> for throughput (operations/ms) and GC allocations (Bytes/op).</p>
+            </div>
+
+            <div class="mb-10 hidden border-b border-gray-200" id="tabsContainer">
+                <nav class="-mb-px flex flex-wrap justify-center gap-2" aria-label="Tabs" id="tabsNav">
+                    <!-- Tabs will be injected here -->
+                </nav>
+            </div>
+
+            <div class="mb-8 hidden" id="sizeFilterContainer">
+                <div class="flex flex-wrap justify-center items-center gap-3">
+                    <span class="text-sm font-semibold text-slate-600">Filter by size:</span>
+                    <div id="sizeFilterButtons" class="flex flex-wrap justify-center gap-2">
+                        <!-- Size filter buttons injected here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div id="chartsContainer" class="max-w-4xl mx-auto space-y-16">
+                <div class="text-center text-slate-500 py-10" id="loadingMessage">
+                    Loading benchmark results...
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
+        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    </footer>
+
+    <!-- Chart Configuration -->
+    <script>
+        async function loadAndRenderBenchmarks() {
+            try {
+                const response = await fetch('results.json');
+                const data = await response.json();
+                const container = document.getElementById('chartsContainer');
+                container.innerHTML = '';
+                
+                // Group data by Benchmark Class (Data Type) -> Operation (put, get) -> Size -> Map Type
+                const benchmarks = {};
+                const allSizes = new Set();
+                
+                data.forEach(entry => {
+                    const parts = entry.benchmark.split('.');
+                    const methodName = parts.pop();
+                    const className = parts.pop();
+                    
+                    const mapType = methodName.startsWith('oakMap') ? 'OakMap (Yahoo)' : 'OffHeapMap';
+                    const operation = methodName.split('_')[1];
+                    const size = entry.params.size;
+                    const throughput = entry.primaryMetric.score;
+                    
+                    allSizes.add(size);
+                    
+                    let gcAllocNorm = 0;
+                    if (entry.secondaryMetrics && entry.secondaryMetrics['·gc.alloc.rate.norm']) {
+                        gcAllocNorm = entry.secondaryMetrics['·gc.alloc.rate.norm'].score;
+                    }
+                    
+                    if (!benchmarks[className]) {
+                        benchmarks[className] = {};
+                    }
+                    if (!benchmarks[className][operation]) {
+                        benchmarks[className][operation] = {};
+                    }
+                    if (!benchmarks[className][operation][size]) {
+                        benchmarks[className][operation][size] = {};
+                    }
+                    
+                    benchmarks[className][operation][size][mapType] = { throughput, gcAllocNorm };
+                });
+                
+                const sortedSizes = Array.from(allSizes).filter(s => parseInt(s) > 2).sort((a, b) => parseInt(a) - parseInt(b));
+                const activeSizes = new Set(sortedSizes);
+                const classNames = Object.keys(benchmarks);
+                let activeClassName = classNames.find(c => c.includes('String')) || classNames[0];
+                
+                // Store chart instances for updates
+                const chartInstances = [];
+                
+                function renderCharts() {
+                    // Destroy existing charts
+                    chartInstances.forEach(c => c.destroy());
+                    chartInstances.length = 0;
+                    container.innerHTML = '';
+                    
+                    for (const [className, ops] of Object.entries(benchmarks)) {
+                        const title = className.replace('Benchmark', '');
+                        
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'bg-slate-50 p-6 rounded-xl border border-slate-200 chart-wrapper';
+                        wrapper.dataset.className = className;
+                        wrapper.style.display = className === activeClassName ? 'block' : 'none';
+                        
+                        const titleEl = document.createElement('h3');
+                        titleEl.className = 'text-2xl font-bold text-center text-slate-800 mb-6 border-b pb-4';
+                        titleEl.textContent = title + ' Results';
+                        wrapper.appendChild(titleEl);
+
+                        for (const [operation, sizes] of Object.entries(ops)) {
+                            const opContainer = document.createElement('div');
+                            opContainer.className = 'mb-12 last:mb-0 bg-white p-4 rounded-lg shadow-sm border border-slate-100';
+                            
+                            const opTitle = document.createElement('h4');
+                            opTitle.className = 'text-xl font-semibold text-center text-indigo-700 mb-6 capitalize';
+                            opTitle.textContent = operation + ' Operation';
+                            opContainer.appendChild(opTitle);
+
+                            const chartsGrid = document.createElement('div');
+                            chartsGrid.className = 'grid grid-cols-1 md:grid-cols-2 gap-8';
+                            opContainer.appendChild(chartsGrid);
+
+                            const thrptCanvas = document.createElement('canvas');
+                            const gcCanvas = document.createElement('canvas');
+                            
+                            const thrptWrapper = document.createElement('div');
+                            thrptWrapper.appendChild(thrptCanvas);
+                            chartsGrid.appendChild(thrptWrapper);
+                            
+                            const gcWrapper = document.createElement('div');
+                            gcWrapper.appendChild(gcCanvas);
+                            chartsGrid.appendChild(gcWrapper);
+
+                            wrapper.appendChild(opContainer);
+
+                            // Filter sizes based on active selection
+                            const filteredSizes = Object.keys(sizes)
+                                .filter(s => activeSizes.has(s))
+                                .sort((a, b) => parseInt(a) - parseInt(b));
+                            
+                            const labels = filteredSizes.map(s => `Size: ${s}`);
+                            
+                            const javaThrpt = [];
+                            const offHeapThrpt = [];
+                            const javaGc = [];
+                            const offHeapGc = [];
+                            
+                            filteredSizes.forEach(size => {
+                                javaThrpt.push(sizes[size]['OakMap (Yahoo)']?.throughput || 0);
+                                offHeapThrpt.push(sizes[size]['OffHeapMap']?.throughput || 0);
+                                javaGc.push(sizes[size]['OakMap (Yahoo)']?.gcAllocNorm || 0);
+                                offHeapGc.push(sizes[size]['OffHeapMap']?.gcAllocNorm || 0);
+                            });
+
+                            chartInstances.push(new Chart(thrptCanvas.getContext('2d'), {
+                                type: 'bar',
+                                data: {
+                                    labels: labels,
+                                    datasets: [
+                                        {
+                                            label: 'OakMap (Yahoo)',
+                                            data: javaThrpt,
+                                            backgroundColor: 'rgba(148, 163, 184, 0.7)',
+                                            borderColor: 'rgba(148, 163, 184, 1)',
+                                            borderWidth: 1
+                                        },
+                                        {
+                                            label: 'OffHeapMap',
+                                            data: offHeapThrpt,
+                                            backgroundColor: 'rgba(67, 56, 202, 0.8)',
+                                            borderColor: 'rgba(67, 56, 202, 1)',
+                                            borderWidth: 1
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            title: {
+                                                display: true,
+                                                text: 'Throughput (ops/ms)'
+                                            }
+                                        }
+                                    },
+                                    plugins: {
+                                        title: {
+                                            display: true,
+                                            text: 'Throughput (Higher is better)'
+                                        },
+                                        legend: {
+                                            position: 'top',
+                                        }
+                                    }
+                                }
+                            }));
+                            
+                            chartInstances.push(new Chart(gcCanvas.getContext('2d'), {
+                                type: 'bar',
+                                data: {
+                                    labels: labels,
+                                    datasets: [
+                                        {
+                                            label: 'OakMap (Yahoo)',
+                                            data: javaGc,
+                                            backgroundColor: 'rgba(220, 38, 38, 0.7)',
+                                            borderColor: 'rgba(220, 38, 38, 1)',
+                                            borderWidth: 1
+                                        },
+                                        {
+                                            label: 'OffHeapMap',
+                                            data: offHeapGc,
+                                            backgroundColor: 'rgba(5, 150, 105, 0.8)',
+                                            borderColor: 'rgba(5, 150, 105, 1)',
+                                            borderWidth: 1
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            title: {
+                                                display: true,
+                                                text: 'Allocation Rate (Bytes/op)'
+                                            }
+                                        }
+                                    },
+                                    plugins: {
+                                        title: {
+                                            display: true,
+                                            text: 'GC Allocation Rate (Lower is better)'
+                                        },
+                                        legend: {
+                                            position: 'top',
+                                        }
+                                    }
+                                }
+                            }));
+                        }
+                        container.appendChild(wrapper);
+                    }
+                }
+
+                // Setup size filter buttons
+                function renderSizeFilters() {
+                    const sizeFilterContainer = document.getElementById('sizeFilterContainer');
+                    const sizeFilterButtons = document.getElementById('sizeFilterButtons');
+                    sizeFilterContainer.classList.remove('hidden');
+                    sizeFilterButtons.innerHTML = '';
+                    
+                    sortedSizes.forEach(size => {
+                        const btn = document.createElement('button');
+                        btn.textContent = size;
+                        const isActive = activeSizes.has(size);
+                        btn.className = isActive
+                            ? 'px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white shadow-sm'
+                            : 'px-3 py-1.5 rounded-md text-sm font-medium bg-slate-200 text-slate-500 hover:bg-slate-300';
+                        btn.addEventListener('click', () => {
+                            if (activeSizes.has(size)) {
+                                if (activeSizes.size > 1) {
+                                    activeSizes.delete(size);
+                                }
+                            } else {
+                                activeSizes.add(size);
+                            }
+                            renderSizeFilters();
+                            renderCharts();
+                        });
+                        sizeFilterButtons.appendChild(btn);
+                    });
+                    
+                    // Add "All" button
+                    const allBtn = document.createElement('button');
+                    allBtn.textContent = 'All';
+                    const allActive = activeSizes.size === sortedSizes.length;
+                    allBtn.className = allActive
+                        ? 'px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white shadow-sm ml-2'
+                        : 'px-3 py-1.5 rounded-md text-sm font-medium bg-slate-200 text-slate-500 hover:bg-slate-300 ml-2';
+                    allBtn.addEventListener('click', () => {
+                        if (allActive) {
+                            // Deselect all except first
+                            activeSizes.clear();
+                            activeSizes.add(sortedSizes[0]);
+                        } else {
+                            sortedSizes.forEach(s => activeSizes.add(s));
+                        }
+                        renderSizeFilters();
+                        renderCharts();
+                    });
+                    sizeFilterButtons.appendChild(allBtn);
+                }
+
+                // Setup the tabs
+                if (classNames.length > 0) {
+                    const tabsContainer = document.getElementById('tabsContainer');
+                    const tabsNav = document.getElementById('tabsNav');
+                    tabsContainer.classList.remove('hidden');
+
+                    const renderTabs = (activeClass) => {
+                        activeClassName = activeClass;
+                        tabsNav.innerHTML = '';
+                        classNames.forEach(className => {
+                            const name = className.replace('Benchmark', '');
+                            const isSelected = className === activeClass;
+                            
+                            const btn = document.createElement('button');
+                            btn.textContent = name;
+                            
+                            if (isSelected) {
+                                btn.className = 'border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-4 border-b-2 font-bold text-sm focus:outline-none';
+                            } else {
+                                btn.className = 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-4 border-b-2 font-medium text-sm focus:outline-none transition-colors duration-200';
+                            }
+                            
+                            btn.addEventListener('click', () => {
+                                renderTabs(className);
+                                renderCharts();
+                            });
+                            
+                            tabsNav.appendChild(btn);
+                        });
+                    };
+
+                    const initClass = classNames.find(c => c.includes('String')) || classNames[0];
+                    renderTabs(initClass);
+                }
+
+                // Initial render
+                renderSizeFilters();
+                renderCharts();
+
+            } catch (error) {
+                console.error("Failed to load benchmarks", error);
+                const isLocal = window.location.protocol === 'file:';
+                const localWarning = isLocal ? " <br><br><b>Note:</b> You are viewing this via the <code>file://</code> protocol. Modern browsers block <code>fetch()</code> requests to local files for security reasons. To view this locally, run a local web server (e.g., <code>python3 -m http.server --directory docs</code>)." : "";
+                document.getElementById('loadingMessage').innerHTML = `<span class="text-red-500">Failed to load benchmark data from results.json. Have the benchmarks been run yet?${localWarning}</span>`;
+            }
+        }
+        
+        loadAndRenderBenchmarks();
+    </script>
+</body>
+</html>
