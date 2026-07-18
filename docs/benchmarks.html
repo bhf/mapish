@@ -33,12 +33,50 @@
         </div>
     </nav>
 
+    <!-- Page Header -->
+    <section class="py-12 px-6">
+        <div class="max-w-5xl mx-auto text-center">
+            <h1 class="text-4xl font-extrabold tracking-tight mb-4">JMH Benchmarks</h1>
+            <p class="text-lg text-slate-600">Comparing Yahoo's <code class="text-sm bg-slate-100 px-1 rounded">OakMap</code> vs <code class="text-sm bg-slate-100 px-1 rounded">OffHeapMap</code> for throughput (operations/ms) and GC allocations (Bytes/op).</p>
+        </div>
+    </section>
+
+    <!-- Speedup Heatmap Section -->
+    <section id="speedup" class="py-16 px-6">
+        <div class="max-w-5xl mx-auto">
+            <div class="text-center mb-4">
+                <h2 class="text-3xl font-extrabold tracking-tight mb-3">Relative Performance</h2>
+                <p class="text-lg text-slate-600 max-w-2xl mx-auto">How many times faster is <code class="text-sm bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-semibold">OffHeapMap</code> compared to <code class="text-sm bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold">OakMap</code> for throughput?</p>
+            </div>
+            <p class="text-center text-sm text-slate-400 mb-10">Values show throughput multiplier (OffHeapMap ÷ OakMap). Higher = better for OffHeapMap.</p>
+
+            <div class="mb-8" id="heatmapTabsContainer">
+                <nav class="-mb-px flex flex-wrap justify-center gap-2 border-b border-gray-200" id="heatmapTabsNav"></nav>
+            </div>
+
+            <div id="heatmapContainer" class="space-y-6">
+                <div class="text-center text-slate-500 py-10">Loading heatmap data...</div>
+            </div>
+
+            <!-- Legend -->
+            <div class="mt-8 flex flex-wrap items-center justify-center gap-4 text-xs text-slate-500">
+                <span class="font-semibold text-slate-700">Legend:</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-4 h-4 rounded" style="background: #dcfce7"></span> 1–2×</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-4 h-4 rounded" style="background: #86efac"></span> 2–5×</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-4 h-4 rounded" style="background: #22c55e"></span> 5–10×</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-4 h-4 rounded" style="background: #15803d"></span> 10–50×</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-4 h-4 rounded" style="background: #14532d; color: white" class="text-white"></span> 50×+</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-4 h-4 rounded" style="background: #fecaca"></span> OakMap faster</span>
+            </div>
+        </div>
+    </section>
+
     <!-- Benchmarks Section -->
-    <section id="benchmarks" class="bg-white py-16 px-6">
+    <section id="benchmarks" class="bg-white py-16 px-6 border-t border-slate-200">
         <div class="max-w-5xl mx-auto">
             <div class="text-center mb-12">
-                <h1 class="text-4xl font-extrabold tracking-tight mb-4">JMH Benchmarks</h1>
-                <p class="text-lg text-slate-600">Comparing Yahoo's <code class="text-sm bg-slate-100 px-1 rounded">OakMap</code> vs <code class="text-sm bg-slate-100 px-1 rounded">OffHeapMap</code> for throughput (operations/ms) and GC allocations (Bytes/op).</p>
+                <h2 class="text-3xl font-extrabold tracking-tight mb-4">Detailed Charts</h2>
+                <p class="text-lg text-slate-600">Side-by-side throughput and GC allocation charts for each operation and data type.</p>
             </div>
 
             <div class="mb-10 hidden border-b border-gray-200" id="tabsContainer">
@@ -363,6 +401,149 @@
                 // Initial render
                 renderSizeFilters();
                 renderCharts();
+
+                // ── Speedup Heatmap ──
+                const heatmapContainer = document.getElementById('heatmapContainer');
+                const heatmapTabsNav = document.getElementById('heatmapTabsNav');
+                let activeHeatmapClass = activeClassName;
+
+                function speedupColor(ratio) {
+                    if (ratio < 1) return { bg: '#fecaca', text: '#991b1b' };       // OakMap faster
+                    if (ratio < 2) return { bg: '#dcfce7', text: '#166534' };        // 1–2×
+                    if (ratio < 5) return { bg: '#86efac', text: '#14532d' };        // 2–5×
+                    if (ratio < 10) return { bg: '#22c55e', text: '#ffffff' };       // 5–10×
+                    if (ratio < 50) return { bg: '#15803d', text: '#ffffff' };       // 10–50×
+                    return { bg: '#14532d', text: '#ffffff' };                       // 50×+
+                }
+
+                function renderHeatmap() {
+                    heatmapContainer.innerHTML = '';
+                    const ops = benchmarks[activeHeatmapClass];
+                    if (!ops) return;
+
+                    // Only show get and put (and containsKey if present)
+                    const opOrder = ['get', 'put', 'containsKey'].filter(o => ops[o]);
+                    const sizesForClass = new Set();
+                    opOrder.forEach(op => Object.keys(ops[op]).forEach(s => sizesForClass.add(s)));
+                    const heatSizes = Array.from(sizesForClass).filter(s => parseInt(s) > 2).sort((a, b) => parseInt(a) - parseInt(b));
+
+                    // Build table
+                    const table = document.createElement('div');
+                    table.className = 'overflow-x-auto';
+                    table.innerHTML = `
+                        <table class="w-full text-sm border-collapse">
+                            <thead>
+                                <tr>
+                                    <th class="py-3 px-4 text-left font-semibold text-slate-700 bg-slate-100 rounded-tl-lg">Operation</th>
+                                    ${heatSizes.map((s, i) => `<th class="py-3 px-5 text-center font-semibold text-slate-700 bg-slate-100 ${i === heatSizes.length - 1 ? 'rounded-tr-lg' : ''}">${Number(s).toLocaleString()} entries</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody id="heatmapBody"></tbody>
+                        </table>
+                    `;
+                    heatmapContainer.appendChild(table);
+
+                    const tbody = table.querySelector('#heatmapBody');
+
+                    opOrder.forEach((op, opIdx) => {
+                        const tr = document.createElement('tr');
+                        tr.className = opIdx < opOrder.length - 1 ? 'border-b border-slate-100' : '';
+
+                        // Operation label
+                        const opLabels = { get: 'get()', put: 'put()', containsKey: 'containsKey()' };
+                        const tdOp = document.createElement('td');
+                        tdOp.className = 'py-4 px-4 font-semibold text-slate-800';
+                        tdOp.innerHTML = `<code class="bg-slate-100 px-2 py-1 rounded text-sm">${opLabels[op] || op}</code>`;
+                        tr.appendChild(tdOp);
+
+                        heatSizes.forEach(size => {
+                            const td = document.createElement('td');
+                            td.className = 'py-4 px-5 text-center';
+
+                            const oakThrpt = ops[op]?.[size]?.['OakMap (Yahoo)']?.throughput;
+                            const offThrpt = ops[op]?.[size]?.['OffHeapMap']?.throughput;
+
+                            if (oakThrpt && offThrpt && oakThrpt > 0) {
+                                const ratio = offThrpt / oakThrpt;
+                                const { bg, text } = speedupColor(ratio);
+                                const label = ratio >= 1
+                                    ? `${ratio.toFixed(1)}×`
+                                    : `${(1 / ratio).toFixed(1)}× slower`;
+
+                                td.innerHTML = `
+                                    <div class="inline-flex flex-col items-center rounded-lg px-3 py-2 min-w-[5rem] shadow-sm" style="background: ${bg}; color: ${text}">
+                                        <span class="text-lg font-extrabold leading-tight">${ratio >= 1 ? ratio.toFixed(1) : (1/ratio).toFixed(1)}×</span>
+                                        <span class="text-[10px] font-medium opacity-80 mt-0.5">${ratio >= 1 ? 'faster' : 'slower'}</span>
+                                    </div>
+                                `;
+                            } else {
+                                td.innerHTML = '<span class="text-slate-300">—</span>';
+                            }
+                            tr.appendChild(td);
+                        });
+
+                        tbody.appendChild(tr);
+                    });
+
+                    // Summary row
+                    const avgTr = document.createElement('tr');
+                    avgTr.className = 'border-t-2 border-slate-300 bg-slate-50';
+                    const avgLabel = document.createElement('td');
+                    avgLabel.className = 'py-4 px-4 font-bold text-slate-900 text-sm';
+                    avgLabel.textContent = 'Average speedup';
+                    avgTr.appendChild(avgLabel);
+
+                    heatSizes.forEach(size => {
+                        const td = document.createElement('td');
+                        td.className = 'py-4 px-5 text-center';
+                        let sum = 0, count = 0;
+                        opOrder.forEach(op => {
+                            const oakThrpt = ops[op]?.[size]?.['OakMap (Yahoo)']?.throughput;
+                            const offThrpt = ops[op]?.[size]?.['OffHeapMap']?.throughput;
+                            if (oakThrpt && offThrpt && oakThrpt > 0) {
+                                sum += offThrpt / oakThrpt;
+                                count++;
+                            }
+                        });
+                        if (count > 0) {
+                            const avg = sum / count;
+                            const { bg, text } = speedupColor(avg);
+                            td.innerHTML = `
+                                <div class="inline-flex flex-col items-center rounded-lg px-3 py-2 min-w-[5rem] shadow-sm font-black" style="background: ${bg}; color: ${text}">
+                                    <span class="text-lg font-extrabold leading-tight">${avg.toFixed(1)}×</span>
+                                    <span class="text-[10px] font-medium opacity-80 mt-0.5">avg</span>
+                                </div>
+                            `;
+                        } else {
+                            td.innerHTML = '<span class="text-slate-300">—</span>';
+                        }
+                        avgTr.appendChild(td);
+                    });
+                    tbody.appendChild(avgTr);
+                }
+
+                // Heatmap tabs
+                function renderHeatmapTabs() {
+                    heatmapTabsNav.innerHTML = '';
+                    classNames.forEach(className => {
+                        const name = className.replace('Benchmark', '');
+                        const isSelected = className === activeHeatmapClass;
+                        const btn = document.createElement('button');
+                        btn.textContent = name;
+                        btn.className = isSelected
+                            ? 'border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-4 border-b-2 font-bold text-sm focus:outline-none'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-4 border-b-2 font-medium text-sm focus:outline-none transition-colors duration-200';
+                        btn.addEventListener('click', () => {
+                            activeHeatmapClass = className;
+                            renderHeatmapTabs();
+                            renderHeatmap();
+                        });
+                        heatmapTabsNav.appendChild(btn);
+                    });
+                }
+
+                renderHeatmapTabs();
+                renderHeatmap();
 
             } catch (error) {
                 console.error("Failed to load benchmarks", error);
