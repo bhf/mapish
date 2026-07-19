@@ -18,7 +18,7 @@
     <!-- Navigation -->
     <nav class="bg-slate-900 text-white px-6 py-3 sticky top-0 z-50 shadow-sm">
         <div class="max-w-5xl mx-auto flex items-center justify-between">
-            <a href="index.html" class="flex items-center gap-2 text-lg font-bold tracking-tight text-blue-300"><img src="https://sanjeev.pages.dev/img/logo2.png" alt="Logo" class="h-6 w-6">Off-Heap Mapish</a>
+            <a href="index.html" class="flex items-center gap-2 text-lg font-bold tracking-tight text-blue-300">Off-Heap Mapish</a>
             <div class="hidden md:flex gap-6 text-sm font-medium">
                 <a href="getting-started.html" class="hover:text-blue-300 transition">Getting Started</a>
                 <a href="comparison.html" class="hover:text-blue-300 transition">Comparison</a>
@@ -58,13 +58,13 @@
     </nav>
 
     <!-- Hero Section -->
-    <header class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white py-20 px-6">
+    <header class="bg-gradient-to-r from-blue-900 to-indigo-800 text-white pt-20 pb-10 px-6">
         <div class="max-w-5xl mx-auto text-center">
             <h1 class="text-5xl font-extrabold tracking-tight mb-4">Off-Heap Mapish</h1>
             <p class="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
                 A high-performance, single-threaded, off-heap hash map implementation using Java's Foreign Function & Memory (FFM) API.
             </p>
-            <div class="bg-gray-900 rounded-xl font-mono text-sm text-left max-w-lg mx-auto mb-8 p-4 overflow-x-auto"><pre class="language-java"><code class="language-java">var map = new OffHeapMap&lt;&gt;(
+            <div class="bg-gray-900 rounded-xl font-mono text-sm text-left max-w-lg mx-auto mb-4 p-4 overflow-x-auto"><pre class="language-java"><code class="language-java">var map = new OffHeapMap&lt;&gt;(
     new StringSerializer(100),
     new StringSerializer(100),
     2_000_000
@@ -76,7 +76,7 @@ map.get("stay"); // "tuned"</code></pre></div>
     </header>
 
     <!-- Features Section -->
-    <section class="py-16 px-6 max-w-5xl mx-auto">
+    <section class="py-8 px-6 max-w-5xl mx-auto">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
             <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
                 <h3 class="text-xl font-bold mb-3 text-indigo-700">Zero GC Pressure</h3>
@@ -87,7 +87,7 @@ map.get("stay"); // "tuned"</code></pre></div>
                 <p class="text-slate-600">Uses Open Addressing with Linear Probing in a single, contiguous <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment</code>. Say goodbye to scattered LinkedList pointers.</p>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                <h3 class="text-xl font-bold mb-3 text-indigo-700">Blazing Fast</h3>
+                <h3 class="text-xl font-bold mb-3 text-indigo-700">Super Fast</h3>
                 <p class="text-slate-600">Direct bit-comparisons using <code class="bg-slate-100 px-1 rounded text-sm">MemorySegment.mismatch()</code> completely eliminate expensive string or object deserialization on lookups.</p>
             </div>
         </div>
@@ -160,8 +160,8 @@ map.get("stay"); // "tuned"</code></pre></div>
     </section>
 
     <!-- Footer -->
-    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm border-t border-slate-800">
-        <p>&copy; 2026 BHF. Released under the Apache 2.0 License.</p>
+    <footer class="bg-slate-900 text-slate-400 py-1 text-center text-sm border-t border-slate-800 sticky bottom-0 z-40">
+        <p><a href="https://sanjeev.pages.dev" target="_blank" rel="noopener noreferrer" class="text-slate-400 hover:text-blue-300 transition font-mono inline-flex items-center gap-2"><img src="https://sanjeev.pages.dev/img/logo2.png" alt="" class="h-5 w-5">~$ StayTuned _</a></p>
     </footer>
 
 </body>
